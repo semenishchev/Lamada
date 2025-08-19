@@ -2,8 +2,11 @@ package cc.olek.lamada.tests;
 
 import cc.olek.lamada.DistributedExecutor;
 import cc.olek.lamada.LoopbackRemoteTargetManager;
+import cc.olek.lamada.defaults.FunctionalDistributedObject;
 import cc.olek.lamada.sender.LoopbackSender;
 import org.junit.jupiter.api.Test;
+
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -30,8 +33,68 @@ public class BasicTests {
     }
 
     @Test
-    public void testInstanceExecution() {
-        // todo: write unit test
+    public void testUniqueObjects() {
+        MixedLoopbackSender<String> sender = new MixedLoopbackSender<>();
+        DistributedExecutor<String> a = new DistributedExecutor<>("a");
+        DistributedExecutor<String> b = new DistributedExecutor<>("b");
+        sender.register(a);
+        sender.register(b);
+        a.setSender(sender);
+        b.setSender(sender);
+        a.setTargetManager(new LoopbackRemoteTargetManager<>(a));
+        b.setTargetManager(new LoopbackRemoteTargetManager<>(b));
+        FunctionalDistributedObject<UUID, AnUniqueObject, String> uniqueObjectsA = new FunctionalDistributedObject<>(a, AnUniqueObject.class, UUID.class, true);
+        a.sync();
+        FunctionalDistributedObject<UUID, AnUniqueObject, String> uniqueObjectsB = new FunctionalDistributedObject<>(b, AnUniqueObject.class, UUID.class, true);
+        b.sync();
+        AnUniqueObject implA = new UniqueImpl(UUID.randomUUID(), "SubjectA");
+        AnUniqueObject implB = new UniqueImpl(UUID.randomUUID(), "SubjectB");
+        System.out.println("Impl A UUID: " + implA.getUUID());
+        System.out.println("Impl B UUID: " + implB.getUUID());
+        uniqueObjectsA.setSerialization(AnUniqueObject::getUUID, uuid -> {
+            System.out.println("Running A: " + uuid);
+            if(uuid.equals(implA.getUUID())) return implA;
+            return null;
+        });
+        uniqueObjectsB.setSerialization(AnUniqueObject::getUUID, uuid -> {
+            System.out.println("Running B: " + uuid);
+            if(uuid.equals(implB.getUUID())) return implB;
+            return null;
+        });
+        assertEquals(
+            implB.getName(),
+            uniqueObjectsA.runMethod("b", implB.getUUID(), AnUniqueObject::getName).join()
+        );
+        assertEquals(
+            implA.getName(),
+            uniqueObjectsB.runMethod("a", implA.getUUID(), AnUniqueObject::getName).join()
+        );
+        assertEquals(
+            implA.getName() + ":" + implB.getName(),
+            uniqueObjectsA.runMethod(
+                "b", implB.getUUID(),
+                playerB -> implA.getName() + ":" + playerB.getName()
+            ).join()
+        );
+        assertEquals(
+            implB.getName() + ":" + implA.getName(),
+            uniqueObjectsB.runMethod(
+                "a", implA.getUUID(),
+                playerA -> implB.getName() + ":" + playerA.getName()
+            ).join()
+        );
+
+        assertEquals(
+            "Hi " + implA.getName(),
+            uniqueObjectsB.runMethod(
+                "a", implA.getUUID(),
+                BasicTests::doSomething
+            ).join()
+        );
+    }
+
+    public static String doSomething(AnUniqueObject obj) {
+        return "Hi " + obj.getName();
     }
 
     public static DistributedExecutor<String> getNew() {

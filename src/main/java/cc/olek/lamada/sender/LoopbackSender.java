@@ -10,8 +10,8 @@ import java.util.concurrent.CompletableFuture;
 
 public class LoopbackSender<Target> implements InstructionCommunicator<Target> {
     @Override
-    public CompletableFuture<byte[]> send(DistributedObject<?, ?, Target> obj, Target target, int opNumber, byte[] data, boolean waitForReply) {
-        DistributedExecutor<Target> executor = obj.getExecutor();
+    public CompletableFuture<byte[]> send(DistributedObject<?, ?, Target> object, Target target, int opNumber, byte[] data, boolean waitForReply) {
+        DistributedExecutor<Target> executor = object.getExecutor();
         return CompletableFuture.supplyAsync(() -> {
             ExecutionContext context = executor.receiveContext(data, executor.getOwnTarget());
             if(context.deserializationError() != null) {

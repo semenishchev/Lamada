@@ -28,6 +28,7 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    environment("SYNC_DEBUG", "1")
 }
 
 allprojects {

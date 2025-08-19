@@ -6,6 +6,8 @@ import cc.olek.lamada.util.Deencapsulation;
 import cc.olek.lamada.util.Exceptions;
 import com.esotericsoftware.minlog.Log;
 import org.objectweb.asm.*;
+import org.objectweb.asm.tree.InsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
 import java.io.File;
@@ -146,8 +148,10 @@ public class LambdaReconstructor {
             throw new IllegalStateException("Could not find lambda function");
         }
         MethodImpl prev = lambda.implementation();
-        lambda.setImplementation(new MethodImpl(internalName, prev.methodName(), prev.signature()));
-        generateAccessorClass(cw, originalClass, internalName, lambda);
+        if(lambda.implMethodKind() == AsmUtil.H_INVOKESTATIC) {
+            lambda.setImplementation(new MethodImpl(internalName, prev.methodName(), prev.signature()));
+            generateAccessorClass(cw, originalClass, internalName, lambda);
+        }
         generateFunctionalMethod(cw, internalName, functionalMethod, lambda, fields);
         cw.visitEnd();
         return cw.toByteArray();
@@ -225,33 +229,33 @@ public class LambdaReconstructor {
 
             @Override
             public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
-                if(!name.startsWith("lambda") || (access & Opcodes.ACC_SYNTHETIC) == 0) return null;
-                if(!name.equals(lambda.implementation().methodName())) {
-                    LambdaCorrector other = new LambdaCorrector(className, newInternalName, originalSource, lambda, new MethodNode(
-                        access & ~(Opcodes.ACC_SYNTHETIC | Opcodes.ACC_PRIVATE) | Opcodes.ACC_PUBLIC,
-                        name,
-                        descriptor,
-                        signature,
-                        exceptions
-                    ));
-                    otherAnalyzers.put(name, other);
-                    return other;
+                if(name.equals(lambda.implementation().methodName())) {
+                    if(primaryAnalyzer != null) return null;
+                    return primaryAnalyzer = new LambdaCorrector(
+                        className,
+                        newClassName,
+                        originalSource,
+                        lambda,
+                        new MethodNode(
+                            Opcodes.ASM9,
+                            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                            name,
+                            descriptor,
+                            signature,
+                            exceptions
+                        )
+                    );
                 }
-                if(primaryAnalyzer != null) return null;
-                return primaryAnalyzer = new LambdaCorrector(
-                    className,
-                    newClassName,
-                    originalSource,
-                    lambda,
-                    new MethodNode(
-                        Opcodes.ASM9,
-                        Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
-                        name,
-                        descriptor,
-                        signature,
-                        exceptions
-                    )
-                );
+                if(!name.startsWith("lambda") || (access & Opcodes.ACC_SYNTHETIC) == 0) return null;
+                LambdaCorrector other = new LambdaCorrector(className, newInternalName, originalSource, lambda, new MethodNode(
+                    access & ~(Opcodes.ACC_SYNTHETIC | Opcodes.ACC_PRIVATE) | Opcodes.ACC_PUBLIC,
+                    name,
+                    descriptor,
+                    signature,
+                    exceptions
+                ));
+                otherAnalyzers.put(name, other);
+                return other;
             }
         };
         cr.accept(editor, ClassReader.SKIP_FRAMES);
@@ -336,8 +340,19 @@ public class LambdaReconstructor {
 
         // Load method arguments
         int argIndex = 1;
-        for(Type argType : argsToOriginal) {
-            mv.visitVarInsn(Opcodes.ALOAD, argIndex++);
+        for(int i = 0, argsToOriginalLength = argsToOriginal.length; i < argsToOriginalLength; i++) {
+            Type argType = argsToOriginal[i];
+            int varIndex = argIndex++;
+            mv.visitVarInsn(Opcodes.ALOAD, varIndex);
+            Label continuation = new Label();
+            if(lambda.implMethodKind() != AsmUtil.H_INVOKESTATIC && varIndex == argsToOriginalLength) {
+                mv.visitInsn(Opcodes.DUP);
+                mv.visitJumpInsn(Opcodes.IFNONNULL, continuation);
+                mv.visitLdcInsn(lambda.implementation().className().replace('/', '.') + " is null to call " + lambda.implementation().methodName());
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, Type.getInternalName(Exceptions.class), "runtime", "(Ljava/lang/String;)Ljava/lang/RuntimeException;", false);
+                mv.visitInsn(Opcodes.ATHROW);
+                mv.visitLabel(continuation);
+            }
             if(argType.getSort() == Type.ARRAY) {
                 mv.visitTypeInsn(Opcodes.CHECKCAST, argType.getDescriptor());
             } else if(argType.getSort() == Type.OBJECT) {
@@ -348,7 +363,6 @@ public class LambdaReconstructor {
         MethodImpl implementation = lambda.implementation();
         int invokeOpcode = AsmUtil.getInvokeOpcode(lambda.implMethodKind());
         boolean isInterface = (lambda.implMethodKind() == AsmUtil.H_INVOKEINTERFACE);
-
         mv.visitMethodInsn(invokeOpcode, implementation.className(), implementation.methodName(),
             implementation.signature(), isInterface);
 

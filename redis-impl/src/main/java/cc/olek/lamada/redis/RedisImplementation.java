@@ -145,8 +145,8 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
     }
 
     @Override
-    public CompletableFuture<byte[]> send(DistributedObject<?, ?, String> obj, String to, int opNumber, byte[] data, boolean waitForReply) {
-        DistributedExecutor<String> executor = obj.getExecutor();
+    public CompletableFuture<byte[]> send(DistributedObject<?, ?, String> object, String to, int opNumber, byte[] data, boolean waitForReply) {
+        DistributedExecutor<String> executor = object.getExecutor();
         CompletableFuture<byte[]> result = new CompletableFuture<>();
         if(waitForReply) {
             submittedFutures.put(opNumber, result);
