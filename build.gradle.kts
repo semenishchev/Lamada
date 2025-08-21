@@ -8,7 +8,6 @@ plugins {
 
 group = "cc.olek.lamada"
 version = "1.0-SNAPSHOT"
-val rootProject = project
 
 repositories {
     mavenCentral()

@@ -22,8 +22,11 @@ import redis.clients.jedis.JedisPubSub;
 import redis.clients.jedis.params.SetParams;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -35,7 +38,7 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
     private final Object2IntMap<LambdaImpl> ownImpls = new Object2IntOpenHashMap<>();
     private final Map<String, Int2ObjectMap<LambdaImpl>> lookup = new HashMap<>();
     private final Function<String, Boolean> activityCheck;
-
+    private final Set<Thread> executing = new HashSet<>();
     public RedisImplementation(DistributedExecutor<String> executor, JedisPool pool) {
         this(executor, pool, null);
     }
@@ -107,8 +110,7 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
                     sendResponseBack(sender, InvocationResult.ofError(context, context.deserializationError()));
                     return;
                 }
-
-                Thread.ofVirtual().start(() -> {
+                Thread thread = Thread.ofVirtual().unstarted(() -> {
                     try {
                         InvocationResult invocation = executor.executeContext(context);
                         if(!waitForReply) return;
@@ -116,8 +118,13 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
                     } catch(Throwable t) {
                         logger.error("Failed sending response back", t);
                         sendResponseBack(sender, InvocationResult.ofError(context, t));
+                    } finally {
+                        executing.remove(Thread.currentThread());
                     }
                 });
+                thread.setName("DistributedObjectTask #" + opNumber);
+                executing.add(thread);
+                thread.start();
                 jedis.close();
             }
             // complete submitted futures
@@ -251,6 +258,13 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
     @Override
     public void shutdown() {
         if(this.activityCheck == null) return;
-        // todo: implement own shutdown
+        for(Thread thread : executing) {
+            try {
+                logger.info("Waiting for {} for 5 minutes", thread.getName());
+                thread.join(Duration.ofMinutes(5));
+            } catch(InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
     }
 }

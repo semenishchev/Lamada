@@ -7,6 +7,7 @@ import cc.olek.lamada.sender.LoopbackSender;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -15,6 +16,7 @@ public class BasicTests {
     public void testBasicCreation() {
         DistributedExecutor<String> aNew = getNew();
         assertEquals("1", aNew.getOwnTarget());
+        aNew.shutdown();
     }
 
     @Test
@@ -30,6 +32,7 @@ public class BasicTests {
         assertEquals("Hello, World!", aNew.runMethod("2", () -> "Hello, World!").join());
         String sent = "This is a sent value";
         assertEquals(sent, aNew.runMethod("2", () -> sent).join());
+        aNew.shutdown();
     }
 
     @Test
@@ -91,6 +94,18 @@ public class BasicTests {
                 BasicTests::doSomething
             ).join()
         );
+        a.shutdown();
+        b.shutdown();
+    }
+
+    @Test
+    public void testShutdown() {
+        DistributedExecutor<String> aNew = getNew();
+        String expected = "Hi!";
+        AtomicReference<String> got = new AtomicReference<>(null);
+        aNew.runMethod("1", () -> expected).thenAccept(got::set);
+        aNew.shutdown();
+        assertEquals(expected, got.get());
     }
 
     public static String doSomething(AnUniqueObject obj) {
