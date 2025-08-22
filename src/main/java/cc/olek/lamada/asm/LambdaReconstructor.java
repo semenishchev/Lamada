@@ -18,10 +18,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -33,6 +30,8 @@ public class LambdaReconstructor {
     private static final Map<String, CompletableFuture<?>> generationInProcess = new ConcurrentHashMap<>();
     private static final Map<Class<?>, ObjectStubFactory<?, ?>> generatedStubsGenerators = new ConcurrentHashMap<>();
     private static final Map<Class<?>, CompletableFuture<?>> stubGenerationInProcess = new ConcurrentHashMap<>();
+    private static final Map<Object, Object> completelyGenerated = new ConcurrentHashMap<>();
+    private static final Object exists = new Object();
     private static String debugVal = System.getenv("SYNC_DEBUG");
     public static final boolean DEBUG;
     static {
@@ -54,41 +53,51 @@ public class LambdaReconstructor {
     public static Object reconstructLambda(LambdaImpl lambda, Object[] args) throws Exception {
         MethodImpl implementation = lambda.implementation();
         String key = implementation.className() + "." + implementation.methodName() + implementation.signature();
-        CompletableFuture<?> existing = generationInProcess.get(key);
-        CompletableFuture<Void> serializeFinished = new CompletableFuture<>();
-        if(existing == null) {
-            generationInProcess.put(key, serializeFinished);
-        } else if(!existing.isDone()) {
-            existing.join();
-        }
+        CompletableFuture<Void> serializeFinished = completelyGenerated.containsKey(key)
+            ? null
+            : waitUntilClassgenDone(key, generationInProcess);
         return generatedSuppliers.computeIfAbsent(key, c -> {
             try {
                 return (Function<Object[], Object>) generateLambdaFactory(lambda);
             } catch(Throwable e) {
                 throw Exceptions.wrap(e);
             } finally {
-                serializeFinished.complete(null);
+                if(serializeFinished != null) {
+                    completelyGenerated.put(c, exists);
+                    serializeFinished.complete(null);
+                }
             }
         }).apply(args);
     }
 
     public static ObjectStubFactory<?, ?> getStubGenerator(Class<?> stubOf) {
-        CompletableFuture<?> existing = stubGenerationInProcess.get(stubOf);
-        CompletableFuture<Void> serializeFinished = new CompletableFuture<>();
-        if(existing == null) {
-            stubGenerationInProcess.put(stubOf, serializeFinished);
-        } else if(!existing.isDone()) {
-            existing.join();
-        }
+        CompletableFuture<Void> serializeFinished = completelyGenerated.containsKey(stubOf)
+            ? null
+            : waitUntilClassgenDone(stubOf, stubGenerationInProcess);
         return generatedStubsGenerators.computeIfAbsent(stubOf, c -> {
             try {
                 return generateStubFactory(c);
             } catch(Throwable e) {
                 throw Exceptions.wrap(e);
             } finally {
-                serializeFinished.complete(null);
+                if(serializeFinished != null) {
+                    completelyGenerated.put(c, exists);
+                    serializeFinished.complete(null);
+                }
             }
         });
+    }
+
+    @SuppressWarnings("SuspiciousMethodCalls")
+    private static <T> CompletableFuture<Void> waitUntilClassgenDone(T object, Map<T, CompletableFuture<?>> source) {
+        CompletableFuture<?> existing = stubGenerationInProcess.get(object);
+        CompletableFuture<Void> serializeFinished = new CompletableFuture<>();
+        if(existing == null) {
+            source.put(object, serializeFinished);
+        } else if(!existing.isDone()) {
+            existing.join();
+        }
+        return serializeFinished;
     }
 
     public static void checkBeforeSending(SerializedLambda lambda) throws Throwable {

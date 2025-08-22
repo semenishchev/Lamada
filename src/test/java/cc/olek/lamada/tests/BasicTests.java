@@ -6,7 +6,11 @@ import cc.olek.lamada.defaults.FunctionalDistributedObject;
 import cc.olek.lamada.sender.LoopbackSender;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -96,6 +100,26 @@ public class BasicTests {
         );
         a.shutdown();
         b.shutdown();
+    }
+
+    @Test
+    public void testAsync() {
+        DistributedExecutor<String> aNew = getNew();
+        Map<String, Object> results = new ConcurrentHashMap<>();
+        Set<String> checkAgainst = new HashSet<>();
+        for(int i = 0; i < 10; i++) {
+            int val = i;
+            checkAgainst.add(String.valueOf(val));
+            new Thread(() -> {
+                aNew.runMethod("1", () -> String.valueOf(val)).thenAccept(res -> {
+                    results.put(res, new Object());
+                });
+            }).start();
+        }
+        aNew.shutdown();
+        System.out.println("Async test: " + checkAgainst.size() + ":" + results.size());
+        System.out.println("\t" + results.keySet() + " -> " + checkAgainst);
+        assertTrue(results.keySet().containsAll(checkAgainst));
     }
 
     @Test
