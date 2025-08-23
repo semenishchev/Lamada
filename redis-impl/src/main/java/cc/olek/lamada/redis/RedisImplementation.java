@@ -110,7 +110,7 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
                     sendResponseBack(sender, InvocationResult.ofError(context, context.deserializationError()));
                     return;
                 }
-                Thread thread = Thread.ofVirtual().unstarted(() -> {
+                Thread thread = RedisExecutor.INSTANCE.unstarted(() -> {
                     try {
                         InvocationResult invocation = executor.executeContext(context);
                         if(!waitForReply) return;
@@ -184,7 +184,7 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
 
     @Override
     public void registerImplementation(String sender, short lambdaNum, LambdaImpl impl) {
-        this.lookup.computeIfAbsent(sender, _ -> new Int2ObjectOpenHashMap<>()).put(lambdaNum, impl);
+        this.lookup.computeIfAbsent(sender, __ -> new Int2ObjectOpenHashMap<>()).put(lambdaNum, impl);
     }
 
     @Override
@@ -204,7 +204,7 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
     @Override
     public SubmissionResult getOrSubmitOwn(String sendTo, LambdaImpl impl) {
         boolean[] existedBefore = {true};
-        short num = (short) ownImpls.computeIfAbsent(impl, _ -> {
+        short num = (short) ownImpls.computeIfAbsent(impl, __ -> {
             existedBefore[0] = false;
             return getNewImplNumber(impl);
         });
@@ -261,7 +261,7 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
         for(Thread thread : executing) {
             try {
                 logger.info("Waiting for {} for 5 minutes", thread.getName());
-                thread.join(Duration.ofMinutes(5));
+                thread.join(5 * 60 * 1000);
             } catch(InterruptedException e) {
                 logger.error("Interrupted waiting", e);
             }
