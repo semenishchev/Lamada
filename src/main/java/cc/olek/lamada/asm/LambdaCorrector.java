@@ -17,7 +17,6 @@ public class LambdaCorrector extends MethodVisitor {
     private final String originalSource;
     private final String className;
     private final String classNameBinary;
-    private final LambdaImpl lambda;
     private final String newClassName;
     private final Set<String> otherLambdaReferences = new HashSet<>();
     private int lastLineNumber;
@@ -34,7 +33,6 @@ public class LambdaCorrector extends MethodVisitor {
         this.className = className;
         this.newClassName = newClassName;
         this.classNameBinary = className.replace('/', '.');
-        this.lambda = impl;
     }
 
     @Override
@@ -57,7 +55,7 @@ public class LambdaCorrector extends MethodVisitor {
             if(!Modifier.isPublic(modifiers)) {
                 throw context("You may not access private fields: " + Modifier.toString(modifiers) + " " + Type.getType(descriptor).getClassName() + " " + owner);
             }
-        } catch(NoSuchFieldException _) {
+        } catch(NoSuchFieldException ignored) {
             throw context("You may not access private fields: " + Type.getType(descriptor).getClassName() + " " + owner);
         } catch(Throwable ignored) {}
         super.visitFieldInsn(opcode, owner, name, descriptor);

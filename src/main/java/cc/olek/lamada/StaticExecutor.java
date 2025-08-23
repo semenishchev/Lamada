@@ -47,7 +47,7 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
         }
         return doSerialize(target, null, toRun, ExecutableInterface.RUNNABLE).thenCompose(
             serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), false)
-        ).thenApply(_ -> null);
+        ).thenApply(__ -> null);
     }
 
     @Override

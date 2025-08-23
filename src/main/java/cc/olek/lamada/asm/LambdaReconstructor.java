@@ -6,8 +6,6 @@ import cc.olek.lamada.util.Deencapsulation;
 import cc.olek.lamada.util.Exceptions;
 import com.esotericsoftware.minlog.Log;
 import org.objectweb.asm.*;
-import org.objectweb.asm.tree.InsnNode;
-import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
 import java.io.File;
@@ -50,7 +48,7 @@ public class LambdaReconstructor {
     }
 
     @SuppressWarnings("unchecked")
-    public static Object reconstructLambda(LambdaImpl lambda, Object[] args) throws Exception {
+    public static Object reconstructLambda(LambdaImpl lambda, Object[] args) {
         MethodImpl implementation = lambda.implementation();
         String key = implementation.className() + "." + implementation.methodName() + implementation.signature();
         CompletableFuture<Void> serializeFinished = completelyGenerated.containsKey(key)
@@ -116,13 +114,6 @@ public class LambdaReconstructor {
         Class<?> functionalInterface = Class.forName(lambda.functionalInterface().replace('/', '.'));
         String implClassBinaryName = originalLambdaImpl.className().replace('/', '.');
         Class<?> implementationClazz = Class.forName(implClassBinaryName);
-        Method lambdaMethod = getLambdaImplMethod(implementationClazz, originalLambdaImpl.methodName());
-
-//        if(lambdaMethod == null || Modifier.isPrivate(lambdaMethod.getModifiers())) {
-//            String implementationCopyClassName = originalLambdaImpl.className() + "$" + lambdaSuffix + "$Copy";
-//            generateAccessorClass(implementationClazz, implementationCopyClassName, lambda, true);
-
-//        }
 
         String generatedClassName = implClassBinaryName + "$" + lambdaSuffix;
         byte[] lambdaClassBytes = generateLambdaClass(implementationClazz, generatedClassName, functionalInterface, lambda);
@@ -349,8 +340,8 @@ public class LambdaReconstructor {
 
         // Load method arguments
         int argIndex = 1;
-        for(int i = 0, argsToOriginalLength = argsToOriginal.length; i < argsToOriginalLength; i++) {
-            Type argType = argsToOriginal[i];
+        int argsToOriginalLength = argsToOriginal.length;
+        for(Type argType : argsToOriginal) {
             int varIndex = argIndex++;
             mv.visitVarInsn(Opcodes.ALOAD, varIndex);
             Label continuation = new Label();

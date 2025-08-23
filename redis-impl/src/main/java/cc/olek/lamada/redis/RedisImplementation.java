@@ -263,7 +263,7 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
                 logger.info("Waiting for {} for 5 minutes", thread.getName());
                 thread.join(Duration.ofMinutes(5));
             } catch(InterruptedException e) {
-                e.printStackTrace();
+                logger.error("Interrupted waiting", e);
             }
         }
     }

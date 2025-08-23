@@ -23,8 +23,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 public abstract class DistributedObject<Key, Value, Target> extends ImmutableSerializer<Value> {
-    protected static boolean SAVE_MESSAGES = System.getProperty("sync.save-msg") != null;
-    protected static Logger LOGGER = LoggerFactory.getLogger("DistributedObject");
+    protected static final boolean SAVE_MESSAGES = System.getProperty("sync.save-msg") != null;
+    protected static final Logger LOGGER = LoggerFactory.getLogger("DistributedObject");
     private final Class<? extends Value> objectType;
     private final Class<? extends Key> serializeFrom;
     private final ObjectStubFactory<Key, Value> stubFactory;
