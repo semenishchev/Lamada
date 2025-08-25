@@ -46,4 +46,8 @@ public abstract class ObjectStub {
     public Object getTarget() {
         return target;
     }
+
+    public DistributedObject<Object,?, Object> getObject() {
+        return object;
+    }
 }

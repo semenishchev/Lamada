@@ -16,6 +16,7 @@ public class ReferenceResolver extends MapReferenceResolver {
         if(ExecutableInterface.class.isAssignableFrom(type)) return false;
         if(DistributedExecutor.class.isAssignableFrom(type)) return false;
         if(type == ExecutionContext.class) return false;
+        if(type.isSynthetic()) return false;
         return super.useReferences(type);
     }
 }

@@ -29,6 +29,7 @@ public class LambdaReconstructor {
     private static final Map<Class<?>, ObjectStubFactory<?, ?>> generatedStubsGenerators = new ConcurrentHashMap<>();
     private static final Map<Class<?>, CompletableFuture<?>> stubGenerationInProcess = new ConcurrentHashMap<>();
     private static final Map<Object, Object> completelyGenerated = new ConcurrentHashMap<>();
+    private static final Map<String, byte[]> implementations = new ConcurrentHashMap<>();
     private static final Object exists = new Object();
     private static String debugVal = System.getenv("SYNC_DEBUG");
     public static final boolean DEBUG;
@@ -39,7 +40,7 @@ public class LambdaReconstructor {
         DEBUG = debugVal != null;
         if(DEBUG) {
             try {
-                Log.set(Integer.parseInt(System.getProperty("sync.debug")));
+                Log.set(Integer.parseInt(debugVal));
             } catch(Exception e) {
                 System.err.println("Failed to parse sync.debug, defaulting to debug");
                 Log.DEBUG();
@@ -48,7 +49,7 @@ public class LambdaReconstructor {
     }
 
     @SuppressWarnings("unchecked")
-    public static Object reconstructLambda(LambdaImpl lambda, Object[] args) {
+    public static Object reconstructLambda(LambdaImpl lambda, Object[] args, boolean firstEver) {
         MethodImpl implementation = lambda.implementation();
         String key = implementation.className() + "." + implementation.methodName() + implementation.signature();
         CompletableFuture<Void> serializeFinished = completelyGenerated.containsKey(key)
@@ -56,7 +57,7 @@ public class LambdaReconstructor {
             : waitUntilClassgenDone(key, generationInProcess);
         return generatedSuppliers.computeIfAbsent(key, c -> {
             try {
-                return (Function<Object[], Object>) generateLambdaFactory(lambda);
+                return (Function<Object[], Object>) generateLambdaFactory(lambda, firstEver);
             } catch(Throwable e) {
                 throw Exceptions.wrap(e);
             } finally {
@@ -108,20 +109,20 @@ public class LambdaReconstructor {
         generateAccessorClass(null, lambdaClass, lambda.getImplClass(), lambdaImpl);
     }
 
-    public static Object generateLambdaFactory(LambdaImpl lambda) throws Throwable {
+    public static Object generateLambdaFactory(LambdaImpl lambda, boolean firstEver) throws Throwable {
         MethodImpl originalLambdaImpl = lambda.implementation();
         String lambdaSuffix = originalLambdaImpl.methodName().replace('$', '_') + lambda.implMethodKind();
         Class<?> functionalInterface = Class.forName(lambda.functionalInterface().replace('/', '.'));
         String implClassBinaryName = originalLambdaImpl.className().replace('/', '.');
         Class<?> implementationClazz = Class.forName(implClassBinaryName);
-
         String generatedClassName = implClassBinaryName + "$" + lambdaSuffix;
+
         byte[] lambdaClassBytes = generateLambdaClass(implementationClazz, generatedClassName, functionalInterface, lambda);
-        if(DEBUG) saveClass(generatedClassName, lambdaClassBytes);
+        saveClass(generatedClassName, lambdaClassBytes, true);
         defineClass(implementationClazz.getClassLoader(), generatedClassName, lambdaClassBytes);
 
         byte[] factoryClassBytes = generateFactoryClass(generatedClassName + "$Generator", generatedClassName);
-        if(DEBUG) saveClass(generatedClassName + "$Generator", factoryClassBytes);
+        saveClass(generatedClassName + "$Generator", factoryClassBytes, false);
         Class<?> factoryClass = defineClass(implementationClazz.getClassLoader(), generatedClassName + "$Generator", factoryClassBytes);
 
         return factoryClass.getConstructor().newInstance();
@@ -185,8 +186,13 @@ public class LambdaReconstructor {
 
     private static void generateAccessorClass(ClassVisitor writer, Class<?> originalClass, String newClassName, LambdaImpl lambda) throws Throwable {
         String newInternalName = newClassName.replace('.', '/');
-
-        byte[] originalBytes = getClassBytes(originalClass);
+        byte[] originalBytes = null;
+        if(originalClass.isSynthetic()) {
+            originalBytes = implementations.get(originalClass.getName());
+        }
+        if(originalBytes == null) {
+            originalBytes = getClassBytes(originalClass);
+        }
 
         ClassReader cr = new ClassReader(originalBytes);
         boolean define = true;
@@ -201,7 +207,7 @@ public class LambdaReconstructor {
             String className;
             @Override
             public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
-                super.visit(version, Opcodes.ACC_PUBLIC, newInternalName, null, "java/lang/Object", null);
+                super.visit(version, Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC, newInternalName, null, "java/lang/Object", null);
                 className = name;
             }
 
@@ -394,12 +400,17 @@ public class LambdaReconstructor {
         return null;
     }
 
-    private static void saveClass(String name, byte[] array) throws IOException {
-        File dir = new File(".debug");
-        if(!dir.exists()) {
-            dir.mkdirs();
+    private static void saveClass(String name, byte[] array, boolean resolve) throws IOException {
+        if(DEBUG) {
+            File dir = new File(".debug");
+            if(!dir.exists()) {
+                dir.mkdirs();
+            }
+            Files.write(Path.of(".debug", name + ".class"), array);
         }
-        Files.write(Path.of(".debug", name + ".class"), array);
+        if(resolve) {
+            implementations.put(name, array);
+        }
     }
 
     public static LambdaImpl getLambdaImpl(SerializedLambda lambda) {
@@ -460,7 +471,7 @@ public class LambdaReconstructor {
         cw.visitEnd();
         byte[] bytes = cw.toByteArray();
 
-        if(DEBUG) saveClass(stubBinaryName, bytes);
+        saveClass(stubBinaryName, bytes, false);
 
         Deencapsulation.defineClass(LambdaReconstructor.class.getClassLoader(), stubBinaryName, bytes);
         String stubFactoryName = objectTypeName + "$StubFactory";
@@ -478,7 +489,7 @@ public class LambdaReconstructor {
         mv.visitEnd();
         cw.visitEnd();
         bytes = cw.toByteArray();
-        if(DEBUG) saveClass(stubFactoryNameBinary, bytes);
+        saveClass(stubFactoryNameBinary, bytes, false);
         Class<?> factoryClass = defineClass(LambdaReconstructor.class.getClassLoader(), stubFactoryNameBinary, bytes);
         return (ObjectStubFactory<?, ?>) factoryClass.getConstructor().newInstance();
     }

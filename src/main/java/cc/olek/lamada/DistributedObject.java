@@ -6,6 +6,7 @@ import cc.olek.lamada.context.InvocationResult;
 import cc.olek.lamada.func.ExecutableInterface;
 import cc.olek.lamada.func.ExecutionConsumer;
 import cc.olek.lamada.func.ExecutionFunction;
+import cc.olek.lamada.util.Deencapsulation;
 import cc.olek.lamada.util.Exceptions;
 import cc.olek.lamada.util.SerializationResult;
 import com.esotericsoftware.kryo.Kryo;
@@ -16,6 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandleInfo;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -123,9 +126,10 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
         DistributedObject<Key, Value, Target> us = this;
         return runMethod(target, key, val -> {
             ObjectStubFactory<Key, Value> stubFactory = us.getStubFactory();
-            if(params == null) {
+            MethodHandle handle = stubFactory.getHandle(id);
+            if(params == null || params.length == 0) {
                 try {
-                    return stubFactory.getHandle(id).invoke(val);
+                    return handle.invoke(val);
                 } catch(Throwable e) {
                     throw Exceptions.wrap(e);
                 }
@@ -134,8 +138,9 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
             Object[] toRun = new Object[length + 1];
             toRun[0] = val;
             System.arraycopy(params, 0, toRun, 1, length);
+
             try {
-                return stubFactory.getHandle(id).invoke(toRun);
+                return handle.invoke(toRun);
             } catch(Throwable e) {
                 throw Exceptions.wrap(e);
             }
@@ -156,7 +161,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
             LOGGER.info("Message #{} to {} is {} bytes long", opNumber,target, bytes.length);
             if(SAVE_MESSAGES) {
                 try {
-                    Files.write(Path.of("out", target + "-" + opNumber + ".bin"), bytes);
+                    Files.write(Path.of(".debug", target + "-" + opNumber + ".bin"), bytes);
                 } catch(IOException e) {
                     LOGGER.error("Failed to save message {}-{}", target, opNumber, e);
                 }

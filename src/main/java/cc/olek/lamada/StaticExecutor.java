@@ -71,12 +71,12 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
     }
 
     @Override
-    protected Object extract(Object o) {
+    protected final Object extract(Object o) {
         return null;
     }
 
     @Override
-    protected Object fetch(Object o) {
+    protected final Object fetch(Object o) {
         return null;
     }
 }

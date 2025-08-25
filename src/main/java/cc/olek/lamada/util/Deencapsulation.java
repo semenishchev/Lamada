@@ -32,6 +32,9 @@ public class Deencapsulation {
         }
     }
 
+    public static Class<?> defineClass(Class<?> parent, byte[] classfile) throws Throwable {
+        return LOOKUP.in(parent).defineHiddenClass(classfile, true, MethodHandles.Lookup.ClassOption.NESTMATE, MethodHandles.Lookup.ClassOption.STRONG).lookupClass();
+    }
     public static Class<?> defineClass(ClassLoader in, String name, byte[] classfile) throws Throwable {
         return (Class<?>) defineClass.invokeWithArguments(in, name, classfile, 0, classfile.length);
     }

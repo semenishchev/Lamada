@@ -1,6 +1,7 @@
 package cc.olek.lamada.tests;
 
 import java.util.UUID;
+import java.util.function.Supplier;
 
 public class UniqueImpl implements AnUniqueObject {
     private final UUID id;
@@ -36,5 +37,10 @@ public class UniqueImpl implements AnUniqueObject {
     @Override
     public void setName(String name) {
         this.name = name;
+    }
+
+    @Override
+    public <T> T doInside(Supplier<T> run) {
+        return run.get();
     }
 }

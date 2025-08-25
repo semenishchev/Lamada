@@ -18,6 +18,6 @@ public class LoopbackSender<Target> implements InstructionCommunicator<Target> {
                 throw Exceptions.wrap(context.deserializationError());
             }
             return executor.serializeResponse(executor.executeContext(context));
-        });
+        }, executor.getAsync());
     }
 }

@@ -6,9 +6,13 @@ import org.jetbrains.annotations.NotNull;
 import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
 
+import java.lang.invoke.LambdaMetafactory;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -102,6 +106,27 @@ public class LambdaCorrector extends MethodVisitor {
             if(lambdaInvoke.getOwner().equals(className)) {
                 otherLambdaReferences.add(lambdaInvoke.getName());
                 bootstrapMethodArguments[1] = new Handle(lambdaInvoke.getTag(), newClassName, lambdaInvoke.getName(), lambdaInvoke.getDesc(), lambdaInvoke.isInterface());
+            }
+            String method = bootstrapMethodHandle.getName();
+            if(method.equals("metafactory")) {
+                bootstrapMethodHandle = new Handle(
+                    bootstrapMethodHandle.getTag(),
+                    bootstrapMethodHandle.getOwner(),
+                    "altMetafactory",
+                    "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;[Ljava/lang/Object;)Ljava/lang/invoke/CallSite;",
+                    false
+                );
+
+                // rebuild arguments for altMetafactory
+                bootstrapMethodArguments = new Object[] {
+                    bootstrapMethodArguments[0],
+                    bootstrapMethodArguments[1],
+                    bootstrapMethodArguments[2],
+                    LambdaMetafactory.FLAG_SERIALIZABLE
+                };
+            } else if (method.equals("altMetafactory")) {
+                int originalFlags = (Integer) bootstrapMethodArguments[3];
+                bootstrapMethodArguments[3] = originalFlags | LambdaMetafactory.FLAG_SERIALIZABLE;
             }
         }
         super.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);

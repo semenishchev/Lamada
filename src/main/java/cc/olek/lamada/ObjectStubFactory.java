@@ -7,6 +7,7 @@ import org.objectweb.asm.Type;
 
 import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -27,6 +28,10 @@ public abstract class ObjectStubFactory<Key, Value> {
             MethodHandle handle;
             try {
                 handle = Deencapsulation.LOOKUP.unreflect(method);
+                int parameterCount = method.getParameterCount();
+                if(parameterCount > 0) {
+                    handle = handle.asSpreader(Object[].class, parameterCount + (Modifier.isStatic(method.getModifiers()) ? 0 : 1));
+                }
             } catch(IllegalAccessException e) {
                 throw new RuntimeException(e);
             }
