@@ -115,7 +115,13 @@ public class LambdaReconstructor {
         Class<?> functionalInterface = Class.forName(lambda.functionalInterface().replace('/', '.'));
         String implClassBinaryName = originalLambdaImpl.className().replace('/', '.');
         Class<?> implementationClazz = Class.forName(implClassBinaryName);
-        String generatedClassName = implClassBinaryName + "$" + lambdaSuffix;
+        String generatedClassName;
+        if(firstEver) {
+            generatedClassName = implClassBinaryName + "$" + lambdaSuffix;
+        } else {
+            String[] mainPart = implClassBinaryName.split("\\$", 1);
+            generatedClassName = mainPart[0] + "$I$" + lambdaSuffix;
+        }
 
         byte[] lambdaClassBytes = generateLambdaClass(implementationClazz, generatedClassName, functionalInterface, lambda);
         saveClass(generatedClassName, lambdaClassBytes, true);

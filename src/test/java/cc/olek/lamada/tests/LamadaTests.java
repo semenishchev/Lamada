@@ -4,6 +4,8 @@ import cc.olek.lamada.DistributedExecutor;
 import cc.olek.lamada.LoopbackRemoteTargetManager;
 import cc.olek.lamada.defaults.FunctionalDistributedObject;
 import cc.olek.lamada.sender.LoopbackSender;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
@@ -18,6 +20,53 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class LamadaTests {
+    private static DistributedExecutor<String> a;
+    private static DistributedExecutor<String> b;
+    private static FunctionalDistributedObject<UUID, AnUniqueObject, String> uniqueObjectsA;
+    private static FunctionalDistributedObject<UUID, AnUniqueObject, String> uniqueObjectsB;
+    public static AnUniqueObject implA;
+    public static AnUniqueObject implB;
+
+    @BeforeAll
+    public static void createExecutors() {
+        MixedLoopbackSender<String> sender = new MixedLoopbackSender<>();
+        Executor executor = Executors.newSingleThreadExecutor();
+        a = new DistributedExecutor<>("a");
+        b = new DistributedExecutor<>("b");
+        sender.register(a);
+        sender.register(b);
+        a.setSender(sender);
+        b.setSender(sender);
+        a.setExecutor(executor);
+        b.setExecutor(executor);
+        a.setTargetManager(new LoopbackRemoteTargetManager<>(a));
+        b.setTargetManager(new LoopbackRemoteTargetManager<>(b));
+        uniqueObjectsA = new FunctionalDistributedObject<>(a, AnUniqueObject.class, UUID.class, true);
+        a.sync();
+        uniqueObjectsB = new FunctionalDistributedObject<>(b, AnUniqueObject.class, UUID.class, true);
+        b.sync();
+        implA = new UniqueImpl(UUID.randomUUID(), "SubjectA");
+        implB = new UniqueImpl(UUID.randomUUID(), "SubjectB");
+        System.out.println("Impl A UUID: " + implA.getUUID());
+        System.out.println("Impl B UUID: " + implB.getUUID());
+        uniqueObjectsA.setSerialization(AnUniqueObject::getUUID, uuid -> {
+            System.out.println("Running A: " + uuid);
+            if(uuid.equals(implA.getUUID())) return implA;
+            return null;
+        });
+        uniqueObjectsB.setSerialization(AnUniqueObject::getUUID, uuid -> {
+            System.out.println("Running B: " + uuid);
+            if(uuid.equals(implB.getUUID())) return implB;
+            return null;
+        });
+    }
+
+    @AfterAll
+    public static void shutdown() {
+        a.shutdown();
+        b.shutdown();
+    }
+
     @Test
     public void testBasicCreation() {
         DistributedExecutor<String> aNew = getNew();
@@ -42,37 +91,57 @@ public class LamadaTests {
     }
 
     @Test
-    public void testUniqueObjects() {
-        MixedLoopbackSender<String> sender = new MixedLoopbackSender<>();
-        Executor executor = Executors.newSingleThreadExecutor();
-        DistributedExecutor<String> a = new DistributedExecutor<>("a");
-        DistributedExecutor<String> b = new DistributedExecutor<>("b");
-        sender.register(a);
-        sender.register(b);
-        a.setSender(sender);
-        b.setSender(sender);
-        a.setExecutor(executor);
-        b.setExecutor(executor);
-        a.setTargetManager(new LoopbackRemoteTargetManager<>(a));
-        b.setTargetManager(new LoopbackRemoteTargetManager<>(b));
-        FunctionalDistributedObject<UUID, AnUniqueObject, String> uniqueObjectsA = new FunctionalDistributedObject<>(a, AnUniqueObject.class, UUID.class, true);
-        a.sync();
-        FunctionalDistributedObject<UUID, AnUniqueObject, String> uniqueObjectsB = new FunctionalDistributedObject<>(b, AnUniqueObject.class, UUID.class, true);
-        b.sync();
-        AnUniqueObject implA = new UniqueImpl(UUID.randomUUID(), "SubjectA");
-        AnUniqueObject implB = new UniqueImpl(UUID.randomUUID(), "SubjectB");
-        System.out.println("Impl A UUID: " + implA.getUUID());
-        System.out.println("Impl B UUID: " + implB.getUUID());
-        uniqueObjectsA.setSerialization(AnUniqueObject::getUUID, uuid -> {
-            System.out.println("Running A: " + uuid);
-            if(uuid.equals(implA.getUUID())) return implA;
-            return null;
-        });
-        uniqueObjectsB.setSerialization(AnUniqueObject::getUUID, uuid -> {
-            System.out.println("Running B: " + uuid);
-            if(uuid.equals(implB.getUUID())) return implB;
-            return null;
-        });
+    public void testUniqueMethodCall() {
+        assertEquals(
+            implB.getName(),
+            uniqueObjectsA.runMethod("b", implB.getUUID(), AnUniqueObject::getName).join()
+        );
+        assertEquals(
+            implA.getName(),
+            uniqueObjectsB.runMethod("a", implA.getUUID(), AnUniqueObject::getName).join()
+        );
+    }
+
+    @Test
+    public void testUniqueStaticCall() {
+        assertEquals(
+            "Hi " + implA.getName(),
+            uniqueObjectsB.runMethod(
+                "a", implA.getUUID(),
+                LamadaTests::doSomething
+            ).join()
+        );
+    }
+
+    @Test
+    public void testUniqueComputedValue() {
+        assertEquals(
+            implA.getName() + ":" + implB.getName(),
+            uniqueObjectsA.runMethod(
+                "b", implB.getUUID(),
+                playerB -> implA.getName() + ":" + playerB.getName()
+            ).join()
+        );
+
+        assertEquals(
+            implB.getName() + ":" + implA.getName(),
+            uniqueObjectsB.runMethod(
+                "a", implA.getUUID(),
+                playerA -> implB.getName() + ":" + playerA.getName()
+            ).join()
+        );
+    }
+
+    @Test
+    public void testUniqueInnerLambdaSimple() {
+        assertEquals("Test", uniqueObjectsB.runMethod(
+            "a", implA.getUUID(),
+            playerA -> implB.doInside(() -> "Test")
+        ).join());
+    }
+
+    @Test
+    public void testUniqueInnerLambda() {
         String fromHere = "d";
         assertEquals("Test:" + fromHere + ":" + implA.getUUID(), uniqueObjectsB.runMethod(
             "a", implA.getUUID(),
@@ -82,39 +151,6 @@ public class LamadaTests {
                 return implB.doInside(() -> "Te" + addition + ":" + fromHere) + ":" + playerA.getUUID();
             }
         ).join());
-        System.out.println("Passed");
-        assertEquals(
-            implB.getName(),
-            uniqueObjectsA.runMethod("b", implB.getUUID(), AnUniqueObject::getName).join()
-        );
-        assertEquals(
-            implA.getName(),
-            uniqueObjectsB.runMethod("a", implA.getUUID(), AnUniqueObject::getName).join()
-        );
-        assertEquals(
-            implA.getName() + ":" + implB.getName(),
-            uniqueObjectsA.runMethod(
-                "b", implB.getUUID(),
-                playerB -> implA.getName() + ":" + playerB.getName()
-            ).join()
-        );
-        assertEquals(
-            implB.getName() + ":" + implA.getName(),
-            uniqueObjectsB.runMethod(
-                "a", implA.getUUID(),
-                playerA -> implB.getName() + ":" + playerA.getName()
-            ).join()
-        );
-
-        assertEquals(
-            "Hi " + implA.getName(),
-            uniqueObjectsB.runMethod(
-                "a", implA.getUUID(),
-                LamadaTests::doSomething
-            ).join()
-        );
-        a.shutdown();
-        b.shutdown();
     }
 
     @Test
