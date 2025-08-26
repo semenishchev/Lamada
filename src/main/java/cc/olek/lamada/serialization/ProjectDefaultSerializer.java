@@ -3,6 +3,7 @@ package cc.olek.lamada.serialization;
 import cc.olek.lamada.DistributedExecutor;
 import cc.olek.lamada.DistributedObject;
 import cc.olek.lamada.ObjectStub;
+import cc.olek.lamada.func.ExecutableInterface;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.Serializer;
 import com.esotericsoftware.kryo.io.Input;
@@ -46,6 +47,9 @@ public class ProjectDefaultSerializer extends Serializer {
                 kryoSerializer.write(kryo, output, forceCast(object));
                 return;
             }
+        }
+        if(object instanceof ExecutableInterface || capturedClass.isSynthetic()) {
+            throw new UnsupportedOperationException("Passing lambdas in complex objects is not *yet* supported"); // todo: make this work
         }
         defaultSerializer.write(kryo, output, object);
     }
