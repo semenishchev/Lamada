@@ -111,8 +111,8 @@ public class DistributedExecutor<Target> {
             ownSerializer = new ExecutorSerializer(this)
         );
 
-//        kryo.setReferences(true);
-//        kryo.setReferenceResolver(new ReferenceResolver());
+        kryo.setReferences(true);
+        kryo.setReferenceResolver(new ReferenceResolver());
     }
 
     public <T> void registerSerializer(Class<T> serialize, Serializer<T> serializer) {
