@@ -9,6 +9,9 @@ public abstract class ObjectStub {
     protected Object key;
     protected Object target;
     protected DistributedObject<Object, ?, Object> object;
+    public ObjectStub() {
+        System.out.println("Object stub");
+    }
 
     public void setup(DistributedObject<Object, ?, Object> object, Object key) {
         if(this.target != null) return;

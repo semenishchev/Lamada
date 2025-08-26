@@ -18,7 +18,7 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
         return doSerialize(target, null, toRun, ExecutableInterface.SUPPLIER).thenCompose(
             serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
         ).thenApply(bytes -> {
-            InvocationResult result = executor.receiveResult(bytes);
+            InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
                 throw new RuntimeException(result.errorMessage());
             }
@@ -33,7 +33,7 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
         return doSerialize(target, null, toRun, ExecutableInterface.RUNNABLE).thenCompose(
             serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
         ).thenApply(bytes -> {
-            InvocationResult result = executor.receiveResult(bytes);
+            InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
                 throw new RuntimeException(result.errorMessage());
             }

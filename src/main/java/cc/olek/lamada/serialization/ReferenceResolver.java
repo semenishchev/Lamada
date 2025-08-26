@@ -1,4 +1,4 @@
-package cc.olek.lamada.util;
+package cc.olek.lamada.serialization;
 
 import cc.olek.lamada.DistributedExecutor;
 import cc.olek.lamada.DistributedObject;

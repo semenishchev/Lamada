@@ -87,11 +87,13 @@ public final class InvocationResult {
     }
 
 
-    public static class ResultSerializer extends com.esotericsoftware.kryo.Serializer<InvocationResult> {
-        private final DistributedExecutor<?> executor;
+    public static class ResultSerializer<Target> extends com.esotericsoftware.kryo.Serializer<InvocationResult> {
+        private final DistributedExecutor<Target> executor;
+        private final Target sender;
 
-        public ResultSerializer(DistributedExecutor<?> executor) {
+        public ResultSerializer(DistributedExecutor<Target> executor, Target sender) {
             this.executor = executor;
+            this.sender = sender;
         }
 
         private static final byte STATE_VOID = 0x0;
@@ -116,6 +118,7 @@ public final class InvocationResult {
 
         @Override
         public InvocationResult read(Kryo kryo, Input input, Class<? extends InvocationResult> type) {
+            kryo.getContext().put("sender", this.sender);
             int opNumber = input.readVarInt(true);
             byte status = input.readByte();
             ExecutionContext context = executor.popContext(opNumber);

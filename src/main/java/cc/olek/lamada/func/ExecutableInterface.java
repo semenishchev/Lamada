@@ -133,15 +133,7 @@ public interface ExecutableInterface extends Serializable {
                 return;
             }
             Class<?> capturedClass = capturedArg.getClass();
-            DistributedObject<?, ?, ?> objWriting = executor.getSerializerByValueClass(capturedClass);
-            if(objWriting == null) {
-                for(Class<?> anInterface : capturedClass.getInterfaces()) {
-                    objWriting = executor.getSerializerByValueClass(anInterface);
-                    if(objWriting != null) {
-                        break;
-                    }
-                }
-            }
+            DistributedObject<?, ?, ?> objWriting = executor.searchSerializer(capturedClass);
             if(objWriting != null) {
                 output.writeByte(STUB);
                 output.writeShort(objWriting.getNumber());
@@ -229,6 +221,7 @@ public interface ExecutableInterface extends Serializable {
 
         @Override
         public Object read(Kryo kryo, Input input, Class<?> type) {
+            kryo.getContext().put("sender", sender);
             byte status = input.readByte();
             LambdaImpl impl;
             readFull: {

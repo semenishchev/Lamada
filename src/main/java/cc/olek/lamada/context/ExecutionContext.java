@@ -144,6 +144,7 @@ public final class ExecutionContext {
 
         @Override
         public ExecutionContext read(Kryo kryo, Input input, Class<? extends ExecutionContext> type) {
+            kryo.getContext().put("sender", sender);
             int opNumber = input.readVarInt(true);
             DistributedObject<?, ?, ?> object;
             try {

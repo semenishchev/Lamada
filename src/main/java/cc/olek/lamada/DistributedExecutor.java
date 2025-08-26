@@ -4,7 +4,9 @@ import cc.olek.lamada.asm.MethodImpl;
 import cc.olek.lamada.context.ExecutionContext;
 import cc.olek.lamada.context.InvocationResult;
 import cc.olek.lamada.func.*;
-import cc.olek.lamada.util.ReferenceResolver;
+import cc.olek.lamada.serialization.ProjectClassInstantiator;
+import cc.olek.lamada.serialization.ProjectSerializerFactory;
+import cc.olek.lamada.serialization.ReferenceResolver;
 import cc.olek.lamada.util.SlfKryoLogger;
 import cc.olek.lamada.util.WeakSet;
 import com.esotericsoftware.kryo.Kryo;
@@ -12,14 +14,14 @@ import com.esotericsoftware.kryo.Serializer;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers;
+import com.esotericsoftware.kryo.unsafe.UnsafeInput;
+import com.esotericsoftware.kryo.unsafe.UnsafeOutput;
 import com.esotericsoftware.minlog.Log;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -38,7 +40,6 @@ public class DistributedExecutor<Target> {
     private final Set<Class<?>> predefines = new HashSet<>();
     private StaticExecutor<Target> staticExecutor;
     private ExecutionContext.ContextSerializer<Target> contextSerializer;
-    private InvocationResult.ResultSerializer responseSerializer;
     private ExecutorSerializer ownSerializer;
 
     final Map<String, DistributedObject<?, ?, Target>> targetClassToObject = new HashMap<>();
@@ -102,15 +103,12 @@ public class DistributedExecutor<Target> {
             ExecutionContext.class,
             contextSerializer = new ExecutionContext.ContextSerializer<>(this)
         );
-        kryo.addDefaultSerializer(
-            InvocationResult.class,
-            responseSerializer = new InvocationResult.ResultSerializer(this)
-        );
         kryo.register(
             DistributedObject.class,
             ownSerializer = new ExecutorSerializer(this)
         );
-
+        kryo.setInstantiatorStrategy(new ProjectClassInstantiator());
+        kryo.setDefaultSerializer(new ProjectSerializerFactory(this));
         kryo.setReferences(true);
         kryo.setReferenceResolver(new ReferenceResolver());
     }
@@ -120,6 +118,14 @@ public class DistributedExecutor<Target> {
         for(Kryo activeKryo : activeKryos) {
             if(activeKryo == null) continue;
             activeKryo.register(serialize, serializer);
+        }
+    }
+
+    public <T> void registerAdditionalSerializer(Class<?> serialize, Serializer<?> serializer) {
+        userDefinedSerializers.put(serialize, serializer);
+        for(Kryo activeKryo : activeKryos) {
+            if(activeKryo == null) continue;
+            activeKryo.addDefaultSerializer(serialize, serializer);
         }
     }
 
@@ -155,32 +161,32 @@ public class DistributedExecutor<Target> {
     }
 
     public byte[] serialize(ExecutionContext context) {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        Output output = newOutputContext(out);
-        kryo.get().writeObject(
-            output,
-            context,
-            contextSerializer
-        );
-        output.close();
-        return out.toByteArray();
+        try(Output output = newOutputContext()) {
+            kryo.get().writeObject(
+                output,
+                context,
+                contextSerializer
+            );
+            output.close();
+            return output.toBytes();
+        }
     }
 
     public byte[] serializeResponse(InvocationResult invocation) {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        Output output = newOutputResponse(out);
-        kryo.get().writeObject(output, invocation, responseSerializer); // force responseSerializer
-        output.close();
-        return out.toByteArray();
+        try(Output output = newOutputResponse()) {
+            kryo.get().writeObject(output, invocation, new InvocationResult.ResultSerializer<>(this, null)); // force responseSerializer
+            return output.toBytes();
+        }
     }
 
-    public ExecutionContext receiveContext(byte[] input, Target sender) {
-        Input kInput = newInputContext(input);
-        return kryo.get().readObject(
-            kInput,
-            ExecutionContext.class,
-            new ExecutionContext.ContextSerializer<>(this, sender)
-        );
+    public ExecutionContext receiveContext(byte[] bytes, Target sender) {
+        try(Input input = newInputContext(bytes)) {
+            return kryo.get().readObject(
+                input,
+                ExecutionContext.class,
+                new ExecutionContext.ContextSerializer<>(this, sender)
+            );
+        }
     }
 
     public InvocationResult executeContext(ExecutionContext context) {
@@ -220,9 +226,10 @@ public class DistributedExecutor<Target> {
         }
     }
 
-    public InvocationResult receiveResult(byte[] input) {
-        Input kInput = newInputResponse(input);
-        return kryo.get().readObject(kInput, InvocationResult.class, responseSerializer);
+    public InvocationResult receiveResult(Target sender, byte[] bytes) {
+        try(Input input = newInputResponse(bytes)) {
+            return kryo.get().readObject(input, InvocationResult.class, new InvocationResult.ResultSerializer<>(this, sender));
+        }
     }
 
     /**
@@ -232,25 +239,37 @@ public class DistributedExecutor<Target> {
         return new ExecutionContext(objectOn, target, key, mode, consumerObject, opNumber);
     }
 
-    protected Output newOutputResponse(OutputStream writeInto) {
-        return new Output(writeInto);
+    protected Output newOutputResponse() {
+        return new UnsafeOutput(512, -1);
     }
 
-    protected Output newOutputContext(OutputStream writeInto) {
-        return new Output(writeInto);
+    protected Output newOutputContext() {
+        return new UnsafeOutput(512, -1);
     }
 
     protected Input newInputContext(byte[] readFrom) {
-        return new Input(readFrom);
+        return new UnsafeInput(readFrom);
     }
 
     protected Input newInputResponse(byte[] readFrom) {
-        return new Input(readFrom);
+        return new UnsafeInput(readFrom);
     }
 
     @SuppressWarnings("unchecked")
     public <V> DistributedObject<?, V, ?> getSerializerByValueClass(Class<V> vClass) {
         return (DistributedObject<?, V, ?>) targetClassToObject.get(vClass.getName());
+    }
+
+    public DistributedObject<?, ?, ?> searchSerializer(Class<?> vClass) {
+        DistributedObject<?, ?, Target> serializer = targetClassToObject.get(vClass.getName());
+        if(serializer != null) return serializer;
+        for(Class<?> anInterface : vClass.getInterfaces()) {
+            serializer = targetClassToObject.get(anInterface.getName());
+            if(serializer == null) continue;
+            registerAdditionalSerializer(vClass, serializer);
+            return serializer;
+        }
+        return null;
     }
 
     public DistributedObject<?, ?, ?> getSerializerByNumber(short number) {

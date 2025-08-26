@@ -6,9 +6,8 @@ import cc.olek.lamada.context.InvocationResult;
 import cc.olek.lamada.func.ExecutableInterface;
 import cc.olek.lamada.func.ExecutionConsumer;
 import cc.olek.lamada.func.ExecutionFunction;
-import cc.olek.lamada.util.Deencapsulation;
 import cc.olek.lamada.util.Exceptions;
-import cc.olek.lamada.util.SerializationResult;
+import cc.olek.lamada.serialization.SerializationResult;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
@@ -18,7 +17,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandleInfo;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -69,7 +67,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
         return doSerialize(target, key, toRun, ExecutableInterface.CONSUMER).thenCompose(
             serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
         ).thenApply(bytes -> {
-            InvocationResult result = executor.receiveResult(bytes);
+            InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
                 throw new RuntimeException(result.errorMessage());
             }
@@ -108,12 +106,16 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
     @SuppressWarnings("unchecked")
     public <T> CompletableFuture<T> runMethod(Target target, Key key, ExecutionFunction<Value, T> toRun) {
         if(target == null || target.equals(executor.ownTarget)) {
-            return CompletableFuture.supplyAsync(() -> toRun.apply(fetch(key)), executor.executor);
+            Value value = fetch(key);
+            if(value == null) {
+                throw new NullPointerException("Failed to move a " + objectType.getSimpleName() + " with key " + key);
+            }
+            return CompletableFuture.supplyAsync(() -> toRun.apply(value), executor.executor);
         }
         return doSerialize(target, key, toRun, ExecutableInterface.FUNCTION).thenCompose(
             serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
         ).thenApply(bytes -> {
-            InvocationResult result = executor.receiveResult(bytes);
+            InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
                 throw new RuntimeException(result.errorMessage());
             }
@@ -185,6 +187,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
                 return;
             }
             if(serializedFirst != null && !serializedFirst.isDone()) {
+                System.out.println("Joined");
                 serializedFirst.join();
             }
             int opNumber = executor.opNumber.getAndIncrement();
@@ -235,10 +238,16 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
             return null;
         }
         Key key = kryo.readObject(input, this.serializeFrom);
-        if(stubFactory != null) {
-            return stubFactory.getStub(key);
+        Value value = get(key);
+        if(value != null) {
+            return value;
         }
-        return get(key);
+        if(stubFactory != null) {
+            Value stub = stubFactory.getStub(key);
+            ((ObjectStub)stub).setTarget(kryo.getContext().get("sender"));
+            return stub;
+        }
+        return null;
     }
 
     public DistributedExecutor<Target> getExecutor() {

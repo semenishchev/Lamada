@@ -8,10 +8,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -138,6 +135,40 @@ public class LamadaTests {
             "a", implA.getUUID(),
             playerA -> implB.doInside(() -> "Test")
         ).join());
+    }
+
+    @Test
+    public void testUniqueInnerLambdaSimpler() {
+        String test = "Test";
+        assertEquals(test + ":" + implB.getUUID(), uniqueObjectsB.runMethod(
+            "a", implA.getUUID(),
+            playerA -> implB.doInside(() -> test) + ":" + implB.getUUID()
+        ).join());
+    }
+
+    public record Something(String str, AnUniqueObject other) {
+
+    }
+
+    @Test
+    public void testObjTransfer() {
+        Something something = new Something("Test", implA);
+        Something other = a.runMethod("b", () -> {
+            return new Something(something.str() + "!", something.other());
+        }).join();
+        assertEquals(something.other.getUUID(), other.other.getUUID());
+    }
+
+    @Test
+    public void testComplexObjTransfer() {
+        Map<UUID, AnUniqueObject> objects = new HashMap<>();
+        objects.put(implA.getUUID(), implA);
+        objects.put(implB.getUUID(), implB);
+        var other = a.runMethod("b", objects::values).join();
+        assertEquals(objects.size(), other.size());
+        for(AnUniqueObject anUniqueObject : other) {
+            assertTrue(objects.containsKey(anUniqueObject.getUUID()));
+        }
     }
 
     @Test

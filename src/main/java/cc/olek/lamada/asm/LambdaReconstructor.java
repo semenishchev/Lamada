@@ -117,10 +117,10 @@ public class LambdaReconstructor {
         Class<?> implementationClazz = Class.forName(implClassBinaryName);
         String generatedClassName;
         if(firstEver) {
-            generatedClassName = implClassBinaryName + "$" + lambdaSuffix;
+            generatedClassName = "generated." + implClassBinaryName + "$" + lambdaSuffix;
         } else {
             String[] mainPart = implClassBinaryName.split("\\$", 1);
-            generatedClassName = mainPart[0] + "$I$" + lambdaSuffix;
+            generatedClassName = "generated." + mainPart[0] + "$I$" + lambdaSuffix;
         }
 
         byte[] lambdaClassBytes = generateLambdaClass(implementationClazz, generatedClassName, functionalInterface, lambda);
@@ -145,8 +145,8 @@ public class LambdaReconstructor {
         Type[] allArgs = Type.getArgumentTypes(implementation.signature());
         Type[] originalSignature = Type.getArgumentTypes(lambda.primarySignature());
 
-        int fieldsToGenerate = calculateFieldsToGenerate(allArgs, originalSignature);
-        List<FieldDesc> fields = generateFields(cw, fieldsToGenerate, allArgs);
+        int fieldsToGenerate = calculateFieldsToGenerate(lambda.implMethodKind(), allArgs, originalSignature);
+        List<FieldDesc> fields = generateFields(cw, fieldsToGenerate > allArgs.length ? lambda : null, fieldsToGenerate, allArgs);
 
         generateConstructor(cw, internalName, fields);
 
@@ -296,18 +296,30 @@ public class LambdaReconstructor {
         }
     }
 
-    private static int calculateFieldsToGenerate(Type[] allArgs, Type[] originalSignature) {
+    private static int calculateFieldsToGenerate(int methodKind, Type[] allArgs, Type[] originalSignature) {
+        if(originalSignature.length == allArgs.length && methodKind != AsmUtil.H_INVOKESTATIC) {
+            return allArgs.length + 1;
+        }
         if(originalSignature.length == 0) return allArgs.length;
         if(allArgs.length == 0) return 0;
         return allArgs.length - 1;
     }
 
-    private static List<FieldDesc> generateFields(ClassWriter cw, int fieldsToGenerate, Type[] allArgs) {
+    private static List<FieldDesc> generateFields(ClassWriter cw, LambdaImpl instance, int fieldsToGenerate, Type[] allArgs) {
         if(fieldsToGenerate == 0) return List.of();
 
         List<FieldDesc> fields = new ArrayList<>(fieldsToGenerate);
         for(int i = 0; i < fieldsToGenerate; i++) {
-            Type param = allArgs[i];
+            Type param;
+            if(instance != null) {
+                if(i == 0) {
+                    param = Type.getType("Ljava/lang/Object;");
+                } else {
+                    param = allArgs[i - 1];
+                }
+            } else {
+                param = allArgs[i];
+            }
             String fieldName = "arg$" + (i + 1);
             cw.visitField(Opcodes.ACC_PUBLIC, fieldName, param.getDescriptor(), null, null).visitEnd();
             fields.add(new FieldDesc(param, fieldName));
