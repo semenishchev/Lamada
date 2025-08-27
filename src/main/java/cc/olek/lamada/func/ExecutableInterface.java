@@ -89,7 +89,7 @@ public interface ExecutableInterface extends Serializable {
                         break writeFull;
                     }
                     try {
-                        LambdaReconstructor.checkBeforeSending(lambda);
+                        LambdaReconstructor.checkBeforeSending(lambda, object);
                     } catch(Throwable e) {
                         throw Exceptions.wrap(e);
                     }

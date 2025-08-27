@@ -23,9 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class DistributedExecutor<Target> {
@@ -42,7 +40,7 @@ public class DistributedExecutor<Target> {
     private ExecutionContext.ContextSerializer<Target> contextSerializer;
     private ExecutorSerializer ownSerializer;
 
-    final Map<String, DistributedObject<?, ?, Target>> targetClassToObject = new HashMap<>();
+    final Map<String, DistributedObject<?, ?, Target>> targetClassToObject = new ConcurrentHashMap<>();
     final AtomicInteger opNumber = new AtomicInteger();
     final Target ownTarget;
     RemoteTargetManager<Target> targetManager;
@@ -352,6 +350,15 @@ public class DistributedExecutor<Target> {
 
     public void shutdown() {
         this.targetManager.shutdown();
+        if(this.executor instanceof ExecutorService service) {
+            try {
+                service.shutdown();
+                service.awaitTermination(30, TimeUnit.SECONDS);
+                service.shutdownNow();
+            } catch(InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 
     public static class ExecutorSerializer extends Serializer<DistributedObject<?, ?, ?>> {

@@ -99,9 +99,9 @@ public class LambdaReconstructor {
         return serializeFinished;
     }
 
-    public static void checkBeforeSending(SerializedLambda lambda) throws Throwable {
+    public static void checkBeforeSending(SerializedLambda lambda, Object lambdaObj) throws Throwable {
         String className = lambda.getImplClass().replace('/', '.');
-        Class<?> lambdaClass = Class.forName(className);
+        Class<?> lambdaClass = Class.forName(className, true, lambdaObj.getClass().getClassLoader());
         Method method = getLambdaImplMethod(lambdaClass, lambda.getImplMethodName());
         if(method != null && Modifier.isPublic(method.getModifiers())) return;
 

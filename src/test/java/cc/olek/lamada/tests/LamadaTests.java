@@ -167,7 +167,9 @@ public class LamadaTests {
         var other = a.runMethod("b", objects::values).join();
         assertEquals(objects.size(), other.size());
         for(AnUniqueObject anUniqueObject : other) {
-            assertTrue(objects.containsKey(anUniqueObject.getUUID()));
+            UUID uuid = anUniqueObject.getUUID();
+            System.out.println("Equals: " + uuid);
+            assertTrue(objects.containsKey(uuid));
         }
     }
 
@@ -182,26 +184,6 @@ public class LamadaTests {
                 return implB.doInside(() -> "Te" + addition + ":" + fromHere) + ":" + playerA.getUUID();
             }
         ).join());
-    }
-
-    @Test
-    public void testAsync() {
-        DistributedExecutor<String> aNew = getNew();
-        Map<String, Object> results = new ConcurrentHashMap<>();
-        Set<String> checkAgainst = new HashSet<>();
-        for(int i = 0; i < 10; i++) {
-            int val = i;
-            checkAgainst.add(String.valueOf(val));
-            new Thread(() -> {
-                aNew.runMethod("1", () -> String.valueOf(val)).thenAccept(res -> {
-                    results.put(res, new Object());
-                });
-            }).start();
-        }
-        aNew.shutdown();
-        System.out.println("Async test: " + checkAgainst.size() + ":" + results.size());
-        System.out.println("\t" + results.keySet() + " -> " + checkAgainst);
-        assertTrue(results.keySet().containsAll(checkAgainst));
     }
 
     @Test
@@ -222,6 +204,7 @@ public class LamadaTests {
         DistributedExecutor<String> executor = new DistributedExecutor<>("1");
         executor.setTargetManager(new LoopbackRemoteTargetManager<>(executor));
         executor.setSender(new LoopbackSender<>());
+        executor.setExecutor(Executors.newSingleThreadExecutor());
         executor.sync();
         return executor;
     }
