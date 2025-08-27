@@ -41,7 +41,9 @@ public interface ExecutableInterface extends Serializable {
         public static final byte OBJ = 0x2; // regular side object
         public static final byte OBJ_REFERENCED = 0x3; // regular side object which might reference other objects (unused for now)
         public static final byte STUB = 0x4; // another object handled by the DistributedExecutor
-        public static final byte ARR = 0x51; // array of objects
+        public static final byte ARR = 0x5; // array of objects
+        public static final byte MANAGER = 0x6; // array of objects
+        public static final byte EXECUTOR = 0x7; // array of objects
 
         private static final Map<Class<?>, MethodHandle> handleMap = new HashMap<>();
 
@@ -132,6 +134,18 @@ public interface ExecutableInterface extends Serializable {
                 kryo.writeObject(output, capturedArg, objWriting);
                 return;
             }
+
+            if(capturedArg instanceof DistributedObject<?,?,?> obj) {
+                output.writeByte(MANAGER);
+                output.writeShort(obj.getNumber());
+                return;
+            }
+
+            if(capturedArg instanceof DistributedExecutor<?>) {
+                output.writeByte(EXECUTOR);
+                return;
+            }
+
             Class<?> capturedClass = capturedArg.getClass();
             DistributedObject<?, ?, ?> objWriting = executor.searchSerializer(capturedClass);
             if(objWriting != null) {
@@ -180,6 +194,11 @@ public interface ExecutableInterface extends Serializable {
                     kryo.reference(result);
                     yield result;
                 }
+                case MANAGER -> {
+                    short regNum = input.readShort();
+                    yield executor.getSerializerByNumber(regNum);
+                }
+                case EXECUTOR -> executor;
                 case STUB -> {
                     short regId = input.readShort();
                     DistributedObject<?, ?, ?> serializer = executor.getSerializerByNumber(regId);
@@ -240,7 +259,7 @@ public interface ExecutableInterface extends Serializable {
 
                         ExecutableInterface itf;
                         try {
-                            itf = (ExecutableInterface) LambdaReconstructor.reconstructLambda(impl, params, false);
+                            itf = (ExecutableInterface) LambdaReconstructor.reconstructLambda(impl, params, false, executor.getContextClassLoader());
                         } catch(Exception e) {
                             throw new RuntimeException("Failed reconstructing requested lambda with num " + lambdaNum + " on " + sender, e);
                         }
@@ -280,7 +299,7 @@ public interface ExecutableInterface extends Serializable {
             }
             Object[] params = readLambdaParams(kryo, input);
             try {
-                return LambdaReconstructor.reconstructLambda(impl, params, firstEver);
+                return LambdaReconstructor.reconstructLambda(impl, params, firstEver, executor.getContextClassLoader());
             } catch(Exception e) {
                 throw Exceptions.wrap(e);
             }

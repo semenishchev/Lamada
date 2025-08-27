@@ -161,7 +161,7 @@ public final class ExecutionContext {
                     key = kryo.readObject(input, object.getSerializeFrom());
                 } catch(Throwable t) {
                     ExecutionContext result = new ExecutionContext(null, sender, null, ExecutableInterface.MODE_ERR, null, opNumber);
-                    result.setDeserializationError(new RuntimeException("Failed to read key for " + object.getClass().getName() + ", number: " + opNumber, t));
+                    result.setDeserializationError(new RuntimeException("Failed to read key for " + object.getClass().getName() + ", number: " + opNumber + ", mode: " + mode, t));
                     return result;
                 }
             }

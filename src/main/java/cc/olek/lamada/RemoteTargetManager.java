@@ -44,7 +44,11 @@ public abstract class RemoteTargetManager<Target> {
     }
 
     public short getNewObjNumber(DistributedObject<?, ?, Target> impl) {
-        return (short) counter.getAndIncrement();
+        int newNum = counter.getAndIncrement();
+        if(newNum == 0) {
+            throw new IllegalStateException("0 object number is reserved for StaticExecutor");
+        }
+        return (short) newNum;
     }
 
     public abstract SubmissionResult getOrSubmitOwn(Target sendTo, LambdaImpl impl);

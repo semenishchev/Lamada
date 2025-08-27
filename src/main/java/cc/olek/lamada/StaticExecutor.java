@@ -71,6 +71,16 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
     }
 
     @Override
+    public void setNumber(short number) {
+        // ignore
+    }
+
+    @Override
+    public short getNumber() {
+        return 0;
+    }
+
+    @Override
     protected final Object extract(Object o) {
         return null;
     }

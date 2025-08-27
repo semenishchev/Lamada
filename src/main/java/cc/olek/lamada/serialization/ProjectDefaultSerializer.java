@@ -40,14 +40,6 @@ public class ProjectDefaultSerializer extends Serializer {
             recordSerializer.write(kryo, output, forceCast(object));
             return;
         }
-        for(Class<?> anInterface : capturedClass.getInterfaces()) {
-            Serializer<?> kryoSerializer = kryo.getSerializer(anInterface);
-            if(kryoSerializer != null) {
-                executor.registerAdditionalSerializer(capturedClass, kryoSerializer);
-                kryoSerializer.write(kryo, output, forceCast(object));
-                return;
-            }
-        }
         if(object instanceof ExecutableInterface || capturedClass.isSynthetic()) {
             throw new UnsupportedOperationException("Passing lambdas in complex objects is not *yet* supported"); // todo: make this work
         }
@@ -63,6 +55,9 @@ public class ProjectDefaultSerializer extends Serializer {
     @SuppressWarnings("unchecked")
     public Object read(Kryo kryo, Input input, Class type) {
         DistributedObject<?, ?, ?> serializer = executor.searchSerializer(type);
+        if(DistributedObject.class.isAssignableFrom(type) || DistributedExecutor.class.isAssignableFrom(type)) {
+            throw new IllegalArgumentException("Cannot read " + type);
+        }
         if(serializer != null) {
             Object read = serializer.read(kryo, input, type);
             if(read instanceof ObjectStub stub) {
@@ -76,13 +71,6 @@ public class ProjectDefaultSerializer extends Serializer {
         }
         if(type.isRecord()) {
             return recordSerializer.read(kryo, input, type);
-        }
-        for(Class<?> anInterface : type.getInterfaces()) {
-            Serializer<?> kryoSerializer = kryo.getSerializer(anInterface);
-            if(kryoSerializer != null) {
-                executor.registerAdditionalSerializer(type, kryoSerializer);
-                return kryoSerializer.read(kryo, input, forceCast(anInterface));
-            }
         }
         return defaultSerializer.read(kryo, input, type);
     }

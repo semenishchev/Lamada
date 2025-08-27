@@ -7,12 +7,9 @@ import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
 
 import java.lang.invoke.LambdaMetafactory;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodType;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -23,10 +20,11 @@ public class LambdaCorrector extends MethodVisitor {
     private final String classNameBinary;
     private final String newClassName;
     private final Set<String> otherLambdaReferences = new HashSet<>();
+    private final ClassLoader classLoader;
     private int lastLineNumber;
     private int firstLineNumber = -1;
 
-    protected LambdaCorrector(String className, String newClassName, String originalSource, LambdaImpl impl, MethodVisitor delegate) {
+    protected LambdaCorrector(String className, String newClassName, String originalSource, MethodVisitor delegate, ClassLoader classLoader) {
         super(Opcodes.ASM9, delegate);
         if(delegate instanceof MethodNode node) {
             this.node = node;
@@ -37,6 +35,7 @@ public class LambdaCorrector extends MethodVisitor {
         this.className = className;
         this.newClassName = newClassName;
         this.classNameBinary = className.replace('/', '.');
+        this.classLoader = classLoader;
     }
 
     @Override

@@ -49,7 +49,7 @@ public class LambdaReconstructor {
     }
 
     @SuppressWarnings("unchecked")
-    public static Object reconstructLambda(LambdaImpl lambda, Object[] args, boolean firstEver) {
+    public static Object reconstructLambda(LambdaImpl lambda, Object[] args, boolean firstEver, ClassLoader classLoader) {
         MethodImpl implementation = lambda.implementation();
         String key = implementation.className() + "." + implementation.methodName() + implementation.signature();
         CompletableFuture<Void> serializeFinished = completelyGenerated.containsKey(key)
@@ -57,7 +57,7 @@ public class LambdaReconstructor {
             : waitUntilClassgenDone(key, generationInProcess);
         return generatedSuppliers.computeIfAbsent(key, c -> {
             try {
-                return (Function<Object[], Object>) generateLambdaFactory(lambda, firstEver);
+                return (Function<Object[], Object>) generateLambdaFactory(lambda, firstEver, classLoader);
             } catch(Throwable e) {
                 throw Exceptions.wrap(e);
             } finally {
@@ -101,20 +101,25 @@ public class LambdaReconstructor {
 
     public static void checkBeforeSending(SerializedLambda lambda, Object lambdaObj) throws Throwable {
         String className = lambda.getImplClass().replace('/', '.');
-        Class<?> lambdaClass = Class.forName(className, true, lambdaObj.getClass().getClassLoader());
+        ClassLoader classLoader = lambdaObj.getClass().getClassLoader();
+        Class<?> lambdaClass = Class.forName(className, true, classLoader);
         Method method = getLambdaImplMethod(lambdaClass, lambda.getImplMethodName());
         if(method != null && Modifier.isPublic(method.getModifiers())) return;
 
         LambdaImpl lambdaImpl = getLambdaImpl(lambda);
-        generateAccessorClass(null, lambdaClass, lambda.getImplClass(), lambdaImpl);
+        generateAccessorClass(null, lambdaClass, lambda.getImplClass(), lambdaImpl, classLoader);
     }
 
-    public static Object generateLambdaFactory(LambdaImpl lambda, boolean firstEver) throws Throwable {
+    public static Object generateLambdaFactory(LambdaImpl lambda, boolean firstEver, ClassLoader classLoader) throws Throwable {
         MethodImpl originalLambdaImpl = lambda.implementation();
         String lambdaSuffix = originalLambdaImpl.methodName().replace('$', '_') + lambda.implMethodKind();
-        Class<?> functionalInterface = Class.forName(lambda.functionalInterface().replace('/', '.'));
+        Class<?> functionalInterface = Class.forName(
+            lambda.functionalInterface().replace('/', '.'),
+            true,
+            classLoader
+        );
         String implClassBinaryName = originalLambdaImpl.className().replace('/', '.');
-        Class<?> implementationClazz = Class.forName(implClassBinaryName);
+        Class<?> implementationClazz = Class.forName(implClassBinaryName, true, classLoader);
         String generatedClassName;
         if(firstEver) {
             generatedClassName = "generated." + implClassBinaryName + "$" + lambdaSuffix;
@@ -157,7 +162,7 @@ public class LambdaReconstructor {
         MethodImpl prev = lambda.implementation();
         if(lambda.implMethodKind() == AsmUtil.H_INVOKESTATIC) {
             lambda.setImplementation(new MethodImpl(internalName, prev.methodName(), prev.signature()));
-            generateAccessorClass(cw, originalClass, internalName, lambda);
+            generateAccessorClass(cw, originalClass, internalName, lambda, originalClass.getClassLoader());
         }
         generateFunctionalMethod(cw, internalName, functionalMethod, lambda, fields);
         cw.visitEnd();
@@ -190,7 +195,7 @@ public class LambdaReconstructor {
         return cw.toByteArray();
     }
 
-    private static void generateAccessorClass(ClassVisitor writer, Class<?> originalClass, String newClassName, LambdaImpl lambda) throws Throwable {
+    private static void generateAccessorClass(ClassVisitor writer, Class<?> originalClass, String newClassName, LambdaImpl lambda, ClassLoader loader) throws Throwable {
         String newInternalName = newClassName.replace('.', '/');
         byte[] originalBytes = null;
         if(originalClass.isSynthetic()) {
@@ -247,7 +252,6 @@ public class LambdaReconstructor {
                         className,
                         newClassName,
                         originalSource,
-                        lambda,
                         new MethodNode(
                             Opcodes.ASM9,
                             Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
@@ -255,17 +259,18 @@ public class LambdaReconstructor {
                             descriptor,
                             signature,
                             exceptions
-                        )
+                        ),
+                        loader
                     );
                 }
                 if(!name.startsWith("lambda") || (access & Opcodes.ACC_SYNTHETIC) == 0) return null;
-                LambdaCorrector other = new LambdaCorrector(className, newInternalName, originalSource, lambda, new MethodNode(
+                LambdaCorrector other = new LambdaCorrector(className, newInternalName, originalSource, new MethodNode(
                     access & ~(Opcodes.ACC_SYNTHETIC | Opcodes.ACC_PRIVATE) | Opcodes.ACC_PUBLIC,
                     name,
                     descriptor,
                     signature,
                     exceptions
-                ));
+                ), loader);
                 otherAnalyzers.put(name, other);
                 return other;
             }

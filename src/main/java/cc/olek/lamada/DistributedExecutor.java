@@ -31,14 +31,14 @@ public class DistributedExecutor<Target> {
     protected final WeakSet<Kryo> activeKryos = new WeakSet<>();
     protected final String purpose;
     protected final ThreadLocal<Kryo> kryo;
-
+    protected ClassLoader contextClassLoader = DistributedExecutor.class.getClassLoader();
     private final Class<Target> targetType;
     private final Int2ObjectMap<ExecutionContext> contexts = new Int2ObjectOpenHashMap<>();
     private final Map<Class<?>, Serializer<?>> userDefinedSerializers = new HashMap<>();
     private final Set<Class<?>> predefines = new HashSet<>();
     private StaticExecutor<Target> staticExecutor;
-    private ExecutionContext.ContextSerializer<Target> contextSerializer;
-    private ExecutorSerializer ownSerializer;
+    private final ExecutionContext.ContextSerializer<Target> contextSerializer = new ExecutionContext.ContextSerializer<>(this);
+    private final ExecutorSerializer ownSerializer = new ExecutorSerializer(this);
 
     final Map<String, DistributedObject<?, ?, Target>> targetClassToObject = new ConcurrentHashMap<>();
     final AtomicInteger opNumber = new AtomicInteger();
@@ -94,16 +94,16 @@ public class DistributedExecutor<Target> {
         Log.setLogger(new SlfKryoLogger());
 
         kryo.setRegistrationRequired(false);
-        kryo.addDefaultSerializer(UUID.class, new DefaultSerializers.UUIDSerializer());
-        kryo.addDefaultSerializer(MethodImpl.class, new MethodImpl.MethodSerializer());
+        kryo.register(UUID.class, new DefaultSerializers.UUIDSerializer());
+        kryo.register(MethodImpl.class, new MethodImpl.MethodSerializer());
         kryo.register(DistributedExecutor.class, new OwnSerializer(this));
         kryo.register(
             ExecutionContext.class,
-            contextSerializer = new ExecutionContext.ContextSerializer<>(this)
+            contextSerializer
         );
         kryo.register(
             DistributedObject.class,
-            ownSerializer = new ExecutorSerializer(this)
+            ownSerializer
         );
         kryo.setInstantiatorStrategy(new ProjectClassInstantiator());
         kryo.setDefaultSerializer(new ProjectSerializerFactory(this));
@@ -259,6 +259,7 @@ public class DistributedExecutor<Target> {
     }
 
     public DistributedObject<?, ?, ?> searchSerializer(Class<?> vClass) {
+        if(vClass == Object.class) return null;
         DistributedObject<?, ?, Target> serializer = targetClassToObject.get(vClass.getName());
         if(serializer != null) return serializer;
         for(Class<?> anInterface : vClass.getInterfaces()) {
@@ -267,7 +268,7 @@ public class DistributedExecutor<Target> {
             registerAdditionalSerializer(vClass, serializer);
             return serializer;
         }
-        return null;
+        return searchSerializer(vClass.getSuperclass());
     }
 
     public DistributedObject<?, ?, ?> getSerializerByNumber(short number) {
@@ -348,6 +349,14 @@ public class DistributedExecutor<Target> {
         this.targetManager = targetManager;
     }
 
+    public void setContextClassLoader(ClassLoader contextClassLoader) {
+        this.contextClassLoader = contextClassLoader;
+    }
+
+    public ClassLoader getContextClassLoader() {
+        return contextClassLoader;
+    }
+
     public void shutdown() {
         this.targetManager.shutdown();
         if(this.executor instanceof ExecutorService service) {
@@ -379,6 +388,7 @@ public class DistributedExecutor<Target> {
             if(serializerByNumber == null) {
                 throw new RuntimeException("Failed to find object with number " + number);
             }
+            System.out.println("And read " + serializerByNumber.getClass());
             return serializerByNumber;
         }
     }
