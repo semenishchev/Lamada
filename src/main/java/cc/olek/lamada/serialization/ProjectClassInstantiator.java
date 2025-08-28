@@ -57,6 +57,11 @@ public class ProjectClassInstantiator implements InstantiatorStrategy {
                 implCache.put(objClass, implClass);
                 return implClass;
             }
+            implClass = searchInterfaces(anInterface, interfaceToImplMap);
+            if(implClass != null) {
+                implCache.put(objClass, implClass);
+                return implClass;
+            }
         }
         return searchInterfaces(objClass.getSuperclass(), interfaceToImplMap);
     }
