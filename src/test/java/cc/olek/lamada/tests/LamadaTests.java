@@ -3,6 +3,8 @@ package cc.olek.lamada.tests;
 import cc.olek.lamada.DistributedExecutor;
 import cc.olek.lamada.LoopbackRemoteTargetManager;
 import cc.olek.lamada.defaults.FunctionalDistributedObject;
+import cc.olek.lamada.func.ExecutionConsumer;
+import cc.olek.lamada.func.ExecutionRunnable;
 import cc.olek.lamada.sender.LoopbackSender;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -171,6 +173,27 @@ public class LamadaTests {
             System.out.println("Equals: " + uuid);
             assertTrue(objects.containsKey(uuid));
         }
+    }
+
+    @Test
+    public void testTaskLikeLambdas() {
+        String greeting = "Hi";
+        long time = System.currentTimeMillis();
+        ExecutionConsumer<AnUniqueObject> something = obj -> {
+            obj.sayHi("Greeting from external lambda: " + greeting, time);
+        };
+        ExecutionConsumer<AnUniqueObject> somethingElse = obj -> {
+            System.out.println("Name in lambda: " + obj.getName());
+        };
+        List<ExecutionConsumer<?>> tasks = List.of(
+            something,
+            somethingElse
+        );
+        uniqueObjectsA.run("b", implB.getUUID(), obj -> {
+            for(ExecutionConsumer<?> task : tasks) {
+                task.applyObj(obj);
+            }
+        }).join();
     }
 
     @Test

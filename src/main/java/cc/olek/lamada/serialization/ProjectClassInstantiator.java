@@ -25,6 +25,7 @@ public class ProjectClassInstantiator implements InstantiatorStrategy {
         this.stdInstantiatorStrategy = new StdInstantiatorStrategy();
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public <T> ObjectInstantiator<T> newInstantiatorOf(Class<T> aClass) {
         if(aClass.isRecord()) {
@@ -43,9 +44,7 @@ public class ProjectClassInstantiator implements InstantiatorStrategy {
             return defaultInstantiatorStrategy.newInstantiatorOf(implClass);
         }
 
-
         return defaultInstantiatorStrategy.newInstantiatorOf(aClass);
-
     }
 
     private static Class<?> searchInterfaces(Class<?> objClass, Map<Class<?>, Class<?>> interfaceToImplMap) {

@@ -6,6 +6,7 @@ import cc.olek.lamada.ObjectStub;
 import cc.olek.lamada.asm.LambdaImpl;
 import cc.olek.lamada.asm.LambdaReconstructor;
 import cc.olek.lamada.asm.MethodImpl;
+import cc.olek.lamada.serialization.SuperclassSerializer;
 import cc.olek.lamada.util.Deencapsulation;
 import cc.olek.lamada.util.Exceptions;
 import com.esotericsoftware.kryo.Kryo;
@@ -31,42 +32,22 @@ public interface ExecutableInterface extends Serializable {
         return val == RUNNABLE || val == SUPPLIER;
     }
 
-    class LambdaSerializer<Target> extends Serializer<Object> {
+    class LambdaSerializer<Target> extends Serializer<Object> implements SuperclassSerializer {
         public static final byte FIRST_TIME_NUM = 0x0; // when there's a number and full implementation info
         public static final byte NUM_NO_IMPL = 0x1; // when there's just a number
         public static final byte NO_NUM = 0x2; // when there's (always) full implementation info and no number
 
-        public static final byte NIL = 0x0; // when the argument is null
-        public static final byte OTHER_LAMBDA = 0x1; // when argument is another lambda
-        public static final byte OBJ = 0x2; // regular side object
-        public static final byte OBJ_REFERENCED = 0x3; // regular side object which might reference other objects (unused for now)
-        public static final byte STUB = 0x4; // another object handled by the DistributedExecutor
-        public static final byte ARR = 0x5; // array of objects
-        public static final byte MANAGER = 0x6; // array of objects
-        public static final byte EXECUTOR = 0x7; // array of objects
-
         private static final Map<Class<?>, MethodHandle> handleMap = new HashMap<>();
 
         private final DistributedExecutor<Target> executor;
-        private final Target sender;
-        private final Target sendTo;
 
-        // This constructor is invoked during read
-        public LambdaSerializer(Target sender, DistributedExecutor<Target> executor) {
-            this.sender = sender;
+        public LambdaSerializer(DistributedExecutor<Target> executor) {
             this.executor = executor;
-            this.sendTo = null;
-        }
-
-        // This constructor is invoked during write
-        public LambdaSerializer(DistributedExecutor<Target> executor, Target sendTo) {
-            this.executor = executor;
-            this.sender = executor.getOwnTarget();
-            this.sendTo = sendTo;
         }
 
         @Override
         public void write(Kryo kryo, Output output, Object object) {
+            Target sendTo = (Target) kryo.getContext().get("receiver");
             SerializedLambda lambda;
             try {
                 lambda = (SerializedLambda) handleMap.computeIfAbsent(object.getClass(), clazz -> {
@@ -80,147 +61,35 @@ public interface ExecutableInterface extends Serializable {
                 throw Exceptions.wrap(e);
             }
             writeFull: {
-                checker: if(sender != null) {
-                    var submissionResult = executor
-                        .getTargetManager()
-                        .onSerialize(sendTo, LambdaReconstructor.getLambdaImpl(lambda));
-                    if(submissionResult == null) break checker;
-                    if(submissionResult.existedBefore()) {
-                        output.writeByte(NUM_NO_IMPL);
-                        output.writeShort(submissionResult.lambdaNum());
-                        break writeFull;
-                    }
-                    try {
-                        LambdaReconstructor.checkBeforeSending(lambda, object);
-                    } catch(Throwable e) {
-                        throw Exceptions.wrap(e);
-                    }
-                    writeFullLambda(output, lambda, submissionResult.lambdaNum(), FIRST_TIME_NUM);
+                var submissionResult = executor
+                    .getTargetManager()
+                    .onSerialize(sendTo, LambdaReconstructor.getLambdaImpl(lambda));
+                if(submissionResult == null) break writeFull;
+                if(submissionResult.existedBefore()) {
+                    output.writeByte(NUM_NO_IMPL);
+                    output.writeShort(submissionResult.lambdaNum());
                     break writeFull;
                 }
-                writeFullLambda(output, lambda, (short)0, NO_NUM);
+                try {
+                    LambdaReconstructor.checkBeforeSending(lambda, object);
+                } catch(Throwable e) {
+                    throw Exceptions.wrap(e);
+                }
+                writeFullLambda(output, lambda, submissionResult.lambdaNum(), FIRST_TIME_NUM);
             }
 
             int capturedCount = lambda.getCapturedArgCount();
             output.writeVarInt(capturedCount, true);
             for(int i = 0; i < capturedCount; i++) {
-                writeObj(kryo, output, lambda.getCapturedArg(i));
+                kryo.writeClassAndObject(output, lambda.getCapturedArg(i));
             }
-        }
-
-        private void writeObj(Kryo kryo, Output output, Object capturedArg) {
-            if(capturedArg == null) {
-                output.writeByte(NIL);
-                return;
-            }
-            if(capturedArg instanceof Object[] arr) {
-                writeObjArray(kryo, output, arr);
-                return;
-            }
-            boolean writeReplace = false;
-            try {
-                capturedArg.getClass().getDeclaredMethod("writeReplace");
-                writeReplace = true;
-            } catch(NoSuchMethodException ignored) {}
-            if(writeReplace) {
-                output.writeByte(OTHER_LAMBDA);
-                kryo.writeObject(output, capturedArg, this);
-                return;
-            }
-            if(capturedArg instanceof ObjectStub stub) {
-                output.writeByte(STUB);
-                DistributedObject<Object, ?, Object> objWriting = stub.getObject();
-                output.writeShort(objWriting.getNumber());
-                kryo.writeObject(output, capturedArg, objWriting);
-                return;
-            }
-
-            if(capturedArg instanceof DistributedObject<?,?,?> obj) {
-                output.writeByte(MANAGER);
-                output.writeShort(obj.getNumber());
-                return;
-            }
-
-            if(capturedArg instanceof DistributedExecutor<?>) {
-                output.writeByte(EXECUTOR);
-                return;
-            }
-
-            Class<?> capturedClass = capturedArg.getClass();
-            DistributedObject<?, ?, ?> objWriting = executor.searchSerializer(capturedClass);
-            if(objWriting != null) {
-                output.writeByte(STUB);
-                output.writeShort(objWriting.getNumber());
-                kryo.writeObject(output, capturedArg, objWriting);
-                return;
-            }
-            if(capturedClass.isSynthetic()) {
-                throw new RuntimeException("Cannot serialize synthetic classes. You are probably trying to use a different Lambda interface. You can only use ExecutionConsumer or ExecutionFunction");
-            }
-            output.writeByte(OBJ);
-            kryo.writeClassAndObject(output, capturedArg);
-        }
-
-        private void writeObjArray(Kryo kryo, Output output, Object[] arr) {
-            output.writeByte(ARR);
-            output.writeVarInt(arr.length, true);
-            for(Object o : arr) {
-                writeObj(kryo, output, o);
-            }
-        }
-
-        private Object readObj(Kryo kryo, Input input) {
-            byte paramStatus = input.readByte();
-            return switch(paramStatus) {
-                case NIL -> null;
-                case OTHER_LAMBDA -> {
-                    Object obj = kryo.readObject(input, Object.class, this);
-                    if(!(obj instanceof ExecutableInterface)) {
-                        kryo.reference(obj);
-                    }
-                    yield obj;
-                }
-                case OBJ -> {
-                    Object obj = kryo.readClassAndObject(input);
-                    kryo.reference(obj);
-                    yield obj;
-                }
-                case ARR -> {
-                    int len = input.readVarInt(true);
-                    Object[] result = new Object[len];
-                    for(int i = 0; i < len; i++) {
-                        result[i] = readObj(kryo, input);
-                    }
-                    kryo.reference(result);
-                    yield result;
-                }
-                case MANAGER -> {
-                    short regNum = input.readShort();
-                    yield executor.getSerializerByNumber(regNum);
-                }
-                case EXECUTOR -> executor;
-                case STUB -> {
-                    short regId = input.readShort();
-                    DistributedObject<?, ?, ?> serializer = executor.getSerializerByNumber(regId);
-                    if(serializer == null) {
-                        throw new RuntimeException("Failed to find serializer with registration ID: " + regId);
-                    }
-                    if(serializer.isUnique()) {
-                        ObjectStub objectStub = kryo.readObject(input, ObjectStub.class, serializer);
-                        objectStub.setTarget(this.sender);
-                        yield objectStub;
-                    }
-                    yield kryo.readObject(input, serializer.getObjectType(), serializer);
-                }
-                default -> throw new UnsupportedOperationException(Integer.toHexString(paramStatus) + " is not supported yet");
-            };
         }
 
         private Object[] readLambdaParams(Kryo kryo, Input input) {
             int objectAmount = input.readVarInt(true);
             Object[] params = new Object[objectAmount];
             for(int i = 0; i < objectAmount; i++) {
-                params[i] = readObj(kryo, input);
+                params[i] = kryo.readClassAndObject(input);
             }
             return params;
         }
@@ -240,7 +109,7 @@ public interface ExecutableInterface extends Serializable {
 
         @Override
         public Object read(Kryo kryo, Input input, Class<?> type) {
-            kryo.getContext().put("sender", sender);
+            Target sender = (Target) kryo.getContext().get("sender");
             byte status = input.readByte();
             LambdaImpl impl;
             readFull: {
@@ -290,7 +159,7 @@ public interface ExecutableInterface extends Serializable {
                     new MethodImpl(implClass, implMethod, implSign)
                 );
                 if(status == FIRST_TIME_NUM) {
-                    executor.getTargetManager().registerImplementation(this.sender, lambdaNum, impl.clone());
+                    executor.getTargetManager().registerImplementation(sender, lambdaNum, impl.clone());
                 }
             }
             boolean firstEver = (Boolean) kryo.getContext().get("first", true);

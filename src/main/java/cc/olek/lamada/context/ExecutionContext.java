@@ -129,14 +129,16 @@ public final class ExecutionContext {
         @SuppressWarnings("unchecked")
         @Override
         public void write(Kryo kryo, Output output, ExecutionContext object) {
+            kryo.getContext().put("sender", executor.getOwnTarget());
+            kryo.getContext().put("receiver", object.target);
             output.writeVarInt(object.opNumber, true);
-            kryo.writeObject(output, object.objectRequesting, executor.getOwnSerializer());
+            kryo.writeObject(output, object.objectRequesting, executor.getOwnObjectSerializer());
             output.writeByte(object.mode);
             if(!object.isStatic()) {
                 kryo.writeObject(output, object.key);
             }
             if(object.target != null) {
-                kryo.writeObject(output, object.lambda, new ExecutableInterface.LambdaSerializer<>(executor, (Target) object.target));
+                kryo.writeObject(output, object.lambda, executor.getLambdaSerializer());
             } else {
                 kryo.writeClassAndObject(output, object.lambda);
             }
@@ -145,10 +147,11 @@ public final class ExecutionContext {
         @Override
         public ExecutionContext read(Kryo kryo, Input input, Class<? extends ExecutionContext> type) {
             kryo.getContext().put("sender", sender);
+            kryo.getContext().put("receiver", executor.getOwnTarget());
             int opNumber = input.readVarInt(true);
             DistributedObject<?, ?, ?> object;
             try {
-                object = kryo.readObject(input, DistributedObject.class, executor.getOwnSerializer());
+                object = kryo.readObject(input, DistributedObject.class, executor.getOwnObjectSerializer());
             } catch(Throwable t) {
                 ExecutionContext result = new ExecutionContext(null, sender, null, ExecutableInterface.MODE_ERR, null, opNumber);
                 result.setDeserializationError(t);
@@ -166,7 +169,7 @@ public final class ExecutionContext {
                 }
             }
             try {
-                ExecutableInterface lambda = kryo.readObject(input, ExecutableInterface.class, new ExecutableInterface.LambdaSerializer<>(sender, executor));
+                ExecutableInterface lambda = kryo.readObject(input, ExecutableInterface.class, executor.getLambdaSerializer());
                 if(lambda == null) {
                     throw new NullPointerException("Failed to reconstruct lambda");
                 }

@@ -6,6 +6,7 @@ import cc.olek.lamada.context.InvocationResult;
 import cc.olek.lamada.func.ExecutableInterface;
 import cc.olek.lamada.func.ExecutionConsumer;
 import cc.olek.lamada.func.ExecutionFunction;
+import cc.olek.lamada.serialization.SuperclassSerializer;
 import cc.olek.lamada.util.Exceptions;
 import cc.olek.lamada.serialization.SerializationResult;
 import com.esotericsoftware.kryo.Kryo;
@@ -23,7 +24,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
-public abstract class DistributedObject<Key, Value, Target> extends ImmutableSerializer<Value> {
+public abstract class DistributedObject<Key, Value, Target> extends ImmutableSerializer<Value> implements SuperclassSerializer {
     protected static final boolean SAVE_MESSAGES = System.getProperty("sync.save-msg") != null;
     protected static final Logger LOGGER = LoggerFactory.getLogger("DistributedObject");
     private final Class<? extends Value> objectType;

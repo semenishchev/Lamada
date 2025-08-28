@@ -4,12 +4,12 @@ import cc.olek.lamada.asm.MethodImpl;
 import cc.olek.lamada.context.ExecutionContext;
 import cc.olek.lamada.context.InvocationResult;
 import cc.olek.lamada.func.*;
-import cc.olek.lamada.serialization.ProjectClassInstantiator;
-import cc.olek.lamada.serialization.ProjectSerializerFactory;
-import cc.olek.lamada.serialization.ReferenceResolver;
+import cc.olek.lamada.serialization.*;
 import cc.olek.lamada.util.SlfKryoLogger;
 import cc.olek.lamada.util.WeakSet;
+import com.esotericsoftware.kryo.ClassResolver;
 import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.Registration;
 import com.esotericsoftware.kryo.Serializer;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
@@ -35,10 +35,16 @@ public class DistributedExecutor<Target> {
     private final Class<Target> targetType;
     private final Int2ObjectMap<ExecutionContext> contexts = new Int2ObjectOpenHashMap<>();
     private final Map<Class<?>, Serializer<?>> userDefinedSerializers = new HashMap<>();
+    private final Map<Class<?>, Registration> knownSuperclassSerializers = new ConcurrentHashMap<>();
+    private final Map<Class<?>, Object> noKnownSuperclassSerializers = new ConcurrentHashMap<>();
     private final Set<Class<?>> predefines = new HashSet<>();
     private StaticExecutor<Target> staticExecutor;
+
     private final ExecutionContext.ContextSerializer<Target> contextSerializer = new ExecutionContext.ContextSerializer<>(this);
-    private final ExecutorSerializer ownSerializer = new ExecutorSerializer(this);
+    private final OwnObjectSerializer ownObjectSerializer = new OwnObjectSerializer(this);
+    private final OwnSerializer ownSerializer = new OwnSerializer(this);
+    private final ExecutableInterface.LambdaSerializer<Target> lambdaSerializer = new ExecutableInterface.LambdaSerializer<>(this);
+    private final ObjectStub.StubSerializer stubSerializer = new ObjectStub.StubSerializer(this);
 
     final Map<String, DistributedObject<?, ?, Target>> targetClassToObject = new ConcurrentHashMap<>();
     final AtomicInteger opNumber = new AtomicInteger();
@@ -57,14 +63,14 @@ public class DistributedExecutor<Target> {
         this.ownTarget = ownTarget;
         this.staticExecutor = new StaticExecutor<>(this);
         this.kryo = ThreadLocal.withInitial(() -> {
-            Kryo kryo = new Kryo();
+            Kryo kryo = new ProjectKryo(this);
             setupKryo(kryo);
             for(Map.Entry<Class<?>, Serializer<?>> serializerEntry : userDefinedSerializers.entrySet()) {
                 kryo.register(serializerEntry.getKey(), serializerEntry.getValue());
             }
             for(DistributedObject<?, ?, Target> registered : targetClassToObject.values()) {
                 kryo.register(registered.getObjectType(), registered);
-                kryo.register(registered.getClass(), ownSerializer);
+                kryo.register(registered.getClass(), ownObjectSerializer);
             }
             for(Class<?> predefine : predefines) {
                 kryo.register(predefine);
@@ -96,17 +102,12 @@ public class DistributedExecutor<Target> {
         kryo.setRegistrationRequired(false);
         kryo.register(UUID.class, new DefaultSerializers.UUIDSerializer());
         kryo.register(MethodImpl.class, new MethodImpl.MethodSerializer());
-        kryo.register(DistributedExecutor.class, new OwnSerializer(this));
-        kryo.register(
-            ExecutionContext.class,
-            contextSerializer
-        );
-        kryo.register(
-            DistributedObject.class,
-            ownSerializer
-        );
+        kryo.register(DistributedExecutor.class, ownSerializer);
+        kryo.register(ExecutableInterface.class, lambdaSerializer);
+        kryo.register(ExecutionContext.class, contextSerializer);
+        kryo.register(DistributedObject.class, ownObjectSerializer);
+        kryo.register(ObjectStub.class, stubSerializer);
         kryo.setInstantiatorStrategy(new ProjectClassInstantiator());
-        kryo.setDefaultSerializer(new ProjectSerializerFactory(this));
         kryo.setReferences(true);
         kryo.setReferenceResolver(new ReferenceResolver());
     }
@@ -119,12 +120,45 @@ public class DistributedExecutor<Target> {
         }
     }
 
-    public <T> void registerAdditionalSerializer(Class<?> serialize, Serializer<?> serializer) {
+    public void registerAdditionalSerializer(Class<?> serialize, Serializer<?> serializer) {
         userDefinedSerializers.put(serialize, serializer);
         for(Kryo activeKryo : activeKryos) {
             if(activeKryo == null) continue;
             activeKryo.addDefaultSerializer(serialize, serializer);
         }
+    }
+
+    public Registration searchSuperclassSerializer(Kryo kryo, Class<?> original) {
+        if(original == null) return null;
+        ClassResolver classResolver = kryo.getClassResolver();
+        Registration potential = classResolver.getRegistration(original);
+        if(potential != null) return potential;
+        if(noKnownSuperclassSerializers.containsKey(original)) return null;
+        potential = knownSuperclassSerializers.get(original);
+        if(potential != null) return potential;
+        Class<?> superclass = original.getSuperclass();
+        potential = classResolver.getRegistration(superclass);
+        if(potential != null && potential.getSerializer() instanceof SuperclassSerializer) {
+            knownSuperclassSerializers.put(original, potential);
+            return potential;
+        }
+        for(Class<?> anInterface : original.getInterfaces()) {
+            potential = classResolver.getRegistration(anInterface);
+            if(potential != null && potential.getSerializer() instanceof SuperclassSerializer) {
+                knownSuperclassSerializers.put(original, potential);
+                return potential;
+            }
+            potential = searchSuperclassSerializer(kryo, anInterface);
+            if(potential != null && potential.getSerializer() instanceof SuperclassSerializer) {
+                knownSuperclassSerializers.put(original, potential);
+                return potential;
+            }
+        }
+        if(superclass == Object.class) {
+            noKnownSuperclassSerializers.put(original, this);
+            return null;
+        }
+        return searchSuperclassSerializer(kryo, superclass);
     }
 
     public void predefineId(Class<?> clazz) {
@@ -152,7 +186,7 @@ public class DistributedExecutor<Target> {
         }
         for(Kryo activeKryo : activeKryos) {
             if(activeKryo == null) continue;
-            activeKryo.register(object.getClass(), ownSerializer);
+            activeKryo.register(object.getClass(), ownObjectSerializer);
             activeKryo.register(object.getObjectType(), object);
         }
         logger.info("Registered {} -> {}", object.getObjectType().getName(), object.getSerializeFrom().getName());
@@ -258,7 +292,7 @@ public class DistributedExecutor<Target> {
         return (DistributedObject<?, V, ?>) targetClassToObject.get(vClass.getName());
     }
 
-    public DistributedObject<?, ?, ?> searchSerializer(Class<?> vClass) {
+    public DistributedObject<?, ?, ?> searchDistributedObject(Class<?> vClass) {
         if(vClass == Object.class) return null;
         DistributedObject<?, ?, Target> serializer = targetClassToObject.get(vClass.getName());
         if(serializer != null) return serializer;
@@ -268,7 +302,7 @@ public class DistributedExecutor<Target> {
             registerAdditionalSerializer(vClass, serializer);
             return serializer;
         }
-        return searchSerializer(vClass.getSuperclass());
+        return searchDistributedObject(vClass.getSuperclass());
     }
 
     public DistributedObject<?, ?, ?> getSerializerByNumber(short number) {
@@ -329,8 +363,16 @@ public class DistributedExecutor<Target> {
         return executor;
     }
 
-    public ExecutorSerializer getOwnSerializer() {
-        return ownSerializer;
+    public OwnObjectSerializer getOwnObjectSerializer() {
+        return ownObjectSerializer;
+    }
+
+    public ExecutableInterface.LambdaSerializer<Target> getLambdaSerializer() {
+        return this.lambdaSerializer;
+    }
+
+    public ObjectStub.StubSerializer getStubSerializer() {
+        return stubSerializer;
     }
 
     public void setSender(InstructionCommunicator<Target> sender) {
@@ -370,10 +412,10 @@ public class DistributedExecutor<Target> {
         }
     }
 
-    public static class ExecutorSerializer extends Serializer<DistributedObject<?, ?, ?>> {
+    public static class OwnObjectSerializer extends Serializer<DistributedObject<?, ?, ?>> {
         private final DistributedExecutor<?> executor;
 
-        public ExecutorSerializer(DistributedExecutor<?> executor) {
+        public OwnObjectSerializer(DistributedExecutor<?> executor) {
             this.executor = executor;
         }
         @Override
@@ -388,7 +430,6 @@ public class DistributedExecutor<Target> {
             if(serializerByNumber == null) {
                 throw new RuntimeException("Failed to find object with number " + number);
             }
-            System.out.println("And read " + serializerByNumber.getClass());
             return serializerByNumber;
         }
     }

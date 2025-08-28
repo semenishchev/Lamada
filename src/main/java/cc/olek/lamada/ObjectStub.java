@@ -1,5 +1,11 @@
 package cc.olek.lamada;
 
+import cc.olek.lamada.serialization.SuperclassSerializer;
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.Serializer;
+import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Output;
+
 /**
  * Stubs an interface which is a unique distributed object. When code refers to an object which lives
  * on the sending JVM, receiving JVM will generate this class, where each method will transfer each invoke
@@ -52,5 +58,34 @@ public abstract class ObjectStub {
 
     public DistributedObject<Object,?, Object> getObject() {
         return object;
+    }
+
+    public static class StubSerializer extends Serializer<ObjectStub> implements SuperclassSerializer {
+
+        private final DistributedExecutor<?> executor;
+
+        public StubSerializer(DistributedExecutor<?> executor) {
+            this.executor = executor;
+        }
+
+        @Override
+        public void write(Kryo kryo, Output output, ObjectStub object) {
+            output.writeShort(object.object.getNumber());
+            kryo.writeObject(output, object.target);
+            kryo.writeObject(output, object.key);
+        }
+
+        @Override
+        public ObjectStub read(Kryo kryo, Input input, Class<? extends ObjectStub> type) {
+            short objectNum = input.readShort();
+            DistributedObject<?, ?, ?> obj = executor.getSerializerByNumber(objectNum);
+            if(obj == null) {
+                throw new IllegalArgumentException("Failed to deserialize an object stub: unknown objectnum: " + objectNum);
+            }
+
+            Object target = kryo.readObject(input, executor.getTypeOfTarget());
+            Object key = kryo.readObject(input, obj.getSerializeFrom());
+            return obj.getStubFactory().getStub(key, target);
+        }
     }
 }

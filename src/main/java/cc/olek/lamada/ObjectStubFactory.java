@@ -66,6 +66,17 @@ public abstract class ObjectStubFactory<Key, Value> {
         return (Value) stub;
     }
 
+    @SuppressWarnings("unchecked")
+    public ObjectStub getStub(Object key, Object target) {
+        Value raw = createNewStub();
+        if(!(raw instanceof ObjectStub stub)) {
+            throw new IllegalStateException("Stub object doesn't extend ObjectStub");
+        }
+        stub.setup((DistributedObject<Object, ?, Object>) executor, key);
+        stub.setTarget(target);
+        return stub;
+    }
+
     private static long hash(String str) {
         CRC32 crc = new CRC32();
         crc.update(str.getBytes(StandardCharsets.UTF_8));
