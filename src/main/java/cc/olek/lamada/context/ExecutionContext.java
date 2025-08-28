@@ -137,11 +137,11 @@ public final class ExecutionContext {
             if(!object.isStatic()) {
                 kryo.writeObject(output, object.key);
             }
-            if(object.target != null) {
-                kryo.writeObject(output, object.lambda, executor.getLambdaSerializer());
-            } else {
-                kryo.writeClassAndObject(output, object.lambda);
+            if(object.target == null) {
+                throw new NullPointerException("Cannot serialize a lambda for null target");
             }
+
+            kryo.writeObject(output, object.lambda, executor.getLambdaSerializer());
         }
 
         @Override

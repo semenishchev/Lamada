@@ -48,7 +48,7 @@ public class ProjectClassInstantiator implements InstantiatorStrategy {
     }
 
     private static Class<?> searchInterfaces(Class<?> objClass, Map<Class<?>, Class<?>> interfaceToImplMap) {
-        if(objClass == Object.class) return null;
+        if(objClass == null || objClass == Object.class) return null;
         Class<?> implClass = implCache.get(objClass);
         if(implClass != null) return implClass;
         for(Class<?> anInterface : objClass.getInterfaces()) {
@@ -63,6 +63,9 @@ public class ProjectClassInstantiator implements InstantiatorStrategy {
                 return implClass;
             }
         }
-        return searchInterfaces(objClass.getSuperclass(), interfaceToImplMap);
+        // For interfaces, getSuperclass() returns null; guard to avoid NPE
+        Class<?> superClass = objClass.getSuperclass();
+        if(superClass == null) return null;
+        return searchInterfaces(superClass, interfaceToImplMap);
     }
 }

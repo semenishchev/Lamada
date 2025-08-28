@@ -188,7 +188,6 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
                 return;
             }
             if(serializedFirst != null && !serializedFirst.isDone()) {
-                System.out.println("Joined");
                 serializedFirst.join();
             }
             int opNumber = executor.opNumber.getAndIncrement();

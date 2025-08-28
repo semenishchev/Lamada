@@ -87,9 +87,8 @@ public class LambdaReconstructor {
         });
     }
 
-    @SuppressWarnings("SuspiciousMethodCalls")
     private static <T> CompletableFuture<Void> waitUntilClassgenDone(T object, Map<T, CompletableFuture<?>> source) {
-        CompletableFuture<?> existing = stubGenerationInProcess.get(object);
+        CompletableFuture<?> existing = source.get(object);
         CompletableFuture<Void> serializeFinished = new CompletableFuture<>();
         if(existing == null) {
             source.put(object, serializeFinished);

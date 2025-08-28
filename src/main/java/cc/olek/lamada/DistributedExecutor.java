@@ -327,7 +327,7 @@ public class DistributedExecutor<Target> {
 
     public ExecutionContext popContext(int num) {
         synchronized(this) {
-            return contexts.get(num);
+            return contexts.remove(num);
         }
     }
 
