@@ -1,8 +1,6 @@
 package cc.olek.lamada.func;
 
 import cc.olek.lamada.DistributedExecutor;
-import cc.olek.lamada.DistributedObject;
-import cc.olek.lamada.ObjectStub;
 import cc.olek.lamada.asm.LambdaImpl;
 import cc.olek.lamada.asm.LambdaReconstructor;
 import cc.olek.lamada.asm.MethodImpl;
@@ -33,9 +31,6 @@ public interface ExecutableInterface extends Serializable {
     }
 
     class LambdaSerializer<Target> extends Serializer<Object> implements SuperclassSerializer {
-        public static final byte FIRST_TIME_NUM = 0x0; // when there's a number and full implementation info
-        public static final byte NUM_NO_IMPL = 0x1; // when there's just a number
-        public static final byte NO_NUM = 0x2; // when there's (always) full implementation info and no number
 
         private static final Map<Class<?>, MethodHandle> handleMap = new HashMap<>();
 
@@ -66,7 +61,7 @@ public interface ExecutableInterface extends Serializable {
                     .onSerialize(sendTo, LambdaReconstructor.getLambdaImpl(lambda));
                 if(submissionResult == null) break writeFull;
                 if(submissionResult.existedBefore()) {
-                    output.writeByte(NUM_NO_IMPL);
+                    output.writeBoolean(false);
                     output.writeShort(submissionResult.lambdaNum());
                     break writeFull;
                 }
@@ -75,7 +70,7 @@ public interface ExecutableInterface extends Serializable {
                 } catch(Throwable e) {
                     throw Exceptions.wrap(e);
                 }
-                writeFullLambda(output, lambda, submissionResult.lambdaNum(), FIRST_TIME_NUM);
+                writeFullLambda(output, lambda, submissionResult.lambdaNum());
             }
 
             int capturedCount = lambda.getCapturedArgCount();
@@ -94,11 +89,9 @@ public interface ExecutableInterface extends Serializable {
             return params;
         }
 
-        private static void writeFullLambda(Output output, SerializedLambda lambda, short lambdaNum, byte status) {
-            output.writeByte(status);
-            if(status == FIRST_TIME_NUM) {
-                output.writeShort(lambdaNum);
-            }
+        private static void writeFullLambda(Output output, SerializedLambda lambda, short lambdaNum) {
+            output.writeBoolean(true);
+            output.writeShort(lambdaNum);
             output.writeString(lambda.getFunctionalInterfaceClass());
             output.writeString(lambda.getInstantiatedMethodType());
             output.writeString(lambda.getImplClass());
@@ -110,10 +103,10 @@ public interface ExecutableInterface extends Serializable {
         @Override
         public Object read(Kryo kryo, Input input, Class<?> type) {
             Target sender = (Target) kryo.getContext().get("sender");
-            byte status = input.readByte();
+            boolean status = input.readBoolean();
             LambdaImpl impl;
             readFull: {
-                if(status == NUM_NO_IMPL) {
+                if(!status) {
                     short lambdaNum = input.readShort();
                     impl = executor.getTargetManager().reconstruct(sender, lambdaNum);
                     if(impl == null) {
@@ -140,11 +133,7 @@ public interface ExecutableInterface extends Serializable {
                     break readFull;
                 }
 
-                short lambdaNum = -1;
-                if(status == FIRST_TIME_NUM) {
-                    lambdaNum = input.readShort();
-                }
-
+                short lambdaNum = input.readShort();
                 String functionalClass = input.readString();
                 String functionalSign = input.readString();
                 String implClass = input.readString();
@@ -158,9 +147,8 @@ public interface ExecutableInterface extends Serializable {
                     functionalSign,
                     new MethodImpl(implClass, implMethod, implSign)
                 );
-                if(status == FIRST_TIME_NUM) {
-                    executor.getTargetManager().registerImplementation(sender, lambdaNum, impl.clone());
-                }
+
+                executor.getTargetManager().registerImplementation(sender, lambdaNum, impl.clone());
             }
             boolean firstEver = (Boolean) kryo.getContext().get("first", true);
             if(firstEver) {
