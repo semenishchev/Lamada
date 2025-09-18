@@ -32,7 +32,7 @@ Unique means an object only exists at 1 JVM during runtime. **Only <ins>interfac
 That is to ensure predictability. If you were to mention a variable of Player and have some logic on that Player,
 Lamada will generate a stub class which will send your call back to the sender and have the result back.
 
-Final step is to sync the executor. **All JVMs should register the object (and everything else) in the same order**
+Final step is to sync the executor. **All JVMs must register objects (and everything else) in the same order**
 ```java
 executor.sync();
 ```
@@ -50,7 +50,7 @@ You can also evaluate something from a remote JVM
 ```java
 Player whoSentHello = ...;
 players.runMethod("other-target", otherPlayerUuid, player -> {
-    return "We have evaluated a name: " + player.getName();    
+    return "We have evaluated a name: " + whoSentHello.getName();    
 }).join(); // we will get that string back
 ```
 
