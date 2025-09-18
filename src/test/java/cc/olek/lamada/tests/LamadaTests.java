@@ -10,6 +10,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -205,6 +206,18 @@ public class LamadaTests {
                 System.out.println("Inside");
                 String addition = "st";
                 return implB.doInside(() -> "Te" + addition + ":" + fromHere) + ":" + playerA.getUUID();
+            }
+        ).join());
+    }
+
+    @Test
+    public void testHugeByteArray() {
+        String str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore";
+        byte[] bytes = str.getBytes(StandardCharsets.UTF_8);
+        assertEquals(str, uniqueObjectsB.runMethod(
+            "a", implA.getUUID(),
+            playerA -> {
+                return new String(bytes, StandardCharsets.UTF_8);
             }
         ).join());
     }

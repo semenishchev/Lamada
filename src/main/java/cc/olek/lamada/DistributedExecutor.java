@@ -33,10 +33,10 @@ public class DistributedExecutor<Target> {
     protected ClassLoader contextClassLoader = DistributedExecutor.class.getClassLoader();
     private final Class<Target> targetType;
     private final Int2ObjectMap<ExecutionContext> contexts = new Int2ObjectOpenHashMap<>();
-    private final Map<Class<?>, Serializer<?>> userDefinedSerializers = new HashMap<>();
+    private final Map<Class<?>, Serializer<?>> userDefinedSerializers = new LinkedHashMap<>();
     private final Map<Class<?>, Registration> knownSuperclassSerializers = new ConcurrentHashMap<>();
     private final Map<Class<?>, Object> noKnownSuperclassSerializers = new ConcurrentHashMap<>();
-    private final Set<Class<?>> predefines = new HashSet<>();
+    private final Set<Class<?>> predefines = new LinkedHashSet<>();
     private StaticExecutor<Target> staticExecutor;
 
     private final ExecutionContext.ContextSerializer<Target> contextSerializer = new ExecutionContext.ContextSerializer<>(this);
@@ -45,7 +45,7 @@ public class DistributedExecutor<Target> {
     private final ExecutableInterface.LambdaSerializer<Target> lambdaSerializer = new ExecutableInterface.LambdaSerializer<>(this);
     private final ObjectStub.StubSerializer stubSerializer = new ObjectStub.StubSerializer(this);
 
-    final Map<String, DistributedObject<?, ?, Target>> targetClassToObject = new ConcurrentHashMap<>();
+    final Map<String, DistributedObject<?, ?, Target>> targetClassToObject = new LinkedHashMap<>();
     final AtomicInteger opNumber = new AtomicInteger();
     final Target ownTarget;
     RemoteTargetManager<Target> targetManager;
@@ -100,6 +100,9 @@ public class DistributedExecutor<Target> {
 
         kryo.setRegistrationRequired(false);
         kryo.register(UUID.class, new DefaultSerializers.UUIDSerializer());
+        kryo.register(byte[].class);
+        kryo.register(int[].class);
+        kryo.register(long[].class);
         kryo.register(MethodImpl.class, new MethodImpl.MethodSerializer());
         kryo.register(DistributedExecutor.class, ownSerializer);
         kryo.register(ExecutableInterface.class, lambdaSerializer);
@@ -109,7 +112,6 @@ public class DistributedExecutor<Target> {
         kryo.setInstantiatorStrategy(new ProjectClassInstantiator());
         kryo.setReferences(true);
         kryo.setReferenceResolver(new ReferenceResolver());
-        kryo.setDefaultSerializer(new ProjectSerializerFactory(this, new SerializerFactory.FieldSerializerFactory(new FieldSerializer.FieldSerializerConfig())));
     }
 
     public <T> void registerSerializer(Class<T> serialize, Serializer<T> serializer) {
@@ -412,7 +414,7 @@ public class DistributedExecutor<Target> {
         }
     }
 
-    public static class OwnObjectSerializer extends Serializer<DistributedObject<?, ?, ?>> {
+    public static class OwnObjectSerializer extends Serializer<DistributedObject<?, ?, ?>> implements SuperclassSerializer {
         private final DistributedExecutor<?> executor;
 
         public OwnObjectSerializer(DistributedExecutor<?> executor) {
@@ -434,7 +436,7 @@ public class DistributedExecutor<Target> {
         }
     }
 
-    private static class OwnSerializer extends Serializer<DistributedExecutor<?>> {
+    private static class OwnSerializer extends Serializer<DistributedExecutor<?>> implements SuperclassSerializer {
         private final DistributedExecutor<?> obj;
 
         public OwnSerializer(DistributedExecutor<?> obj) {
