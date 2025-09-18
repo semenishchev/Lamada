@@ -4,6 +4,7 @@ import cc.olek.lamada.DistributedExecutor;
 import cc.olek.lamada.ObjectStub;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.Registration;
+import com.esotericsoftware.kryo.SerializerFactory;
 import com.esotericsoftware.kryo.io.Output;
 
 public class ProjectKryo extends Kryo {

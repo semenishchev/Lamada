@@ -5,15 +5,14 @@ import cc.olek.lamada.context.ExecutionContext;
 import cc.olek.lamada.context.InvocationResult;
 import cc.olek.lamada.func.*;
 import cc.olek.lamada.serialization.*;
+import cc.olek.lamada.serialization.ReferenceResolver;
 import cc.olek.lamada.util.SlfKryoLogger;
 import cc.olek.lamada.util.WeakSet;
-import com.esotericsoftware.kryo.ClassResolver;
-import com.esotericsoftware.kryo.Kryo;
-import com.esotericsoftware.kryo.Registration;
-import com.esotericsoftware.kryo.Serializer;
+import com.esotericsoftware.kryo.*;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers;
+import com.esotericsoftware.kryo.serializers.FieldSerializer;
 import com.esotericsoftware.kryo.unsafe.UnsafeInput;
 import com.esotericsoftware.kryo.unsafe.UnsafeOutput;
 import com.esotericsoftware.minlog.Log;
@@ -110,6 +109,7 @@ public class DistributedExecutor<Target> {
         kryo.setInstantiatorStrategy(new ProjectClassInstantiator());
         kryo.setReferences(true);
         kryo.setReferenceResolver(new ReferenceResolver());
+        kryo.setDefaultSerializer(new ProjectSerializerFactory(this, new SerializerFactory.FieldSerializerFactory(new FieldSerializer.FieldSerializerConfig())));
     }
 
     public <T> void registerSerializer(Class<T> serialize, Serializer<T> serializer) {
@@ -124,7 +124,7 @@ public class DistributedExecutor<Target> {
         userDefinedSerializers.put(serialize, serializer);
         for(Kryo activeKryo : activeKryos) {
             if(activeKryo == null) continue;
-            activeKryo.addDefaultSerializer(serialize, serializer);
+            activeKryo.register(serialize, serializer);
         }
     }
 
@@ -439,6 +439,7 @@ public class DistributedExecutor<Target> {
 
         public OwnSerializer(DistributedExecutor<?> obj) {
             this.obj = obj;
+            setAcceptsNull(true);
         }
 
         @Override
