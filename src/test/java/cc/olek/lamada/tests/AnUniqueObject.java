@@ -5,6 +5,7 @@ import java.util.function.Supplier;
 
 public interface AnUniqueObject {
     long sayHi(String text, long time);
+    long getTime();
     void doSomething();
     String getName();
     UUID getUUID();
