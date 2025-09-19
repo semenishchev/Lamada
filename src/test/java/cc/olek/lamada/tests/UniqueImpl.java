@@ -13,6 +13,11 @@ public class UniqueImpl implements AnUniqueObject {
     }
 
     @Override
+    public long getTime() {
+        return System.currentTimeMillis();
+    }
+
+    @Override
     public long sayHi(String text, long time) {
         long diff = System.currentTimeMillis() - time;
         System.out.println("Took " + diff + "ms to say " + text);

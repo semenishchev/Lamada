@@ -84,6 +84,7 @@ public class LamadaTests {
         });
         long time = System.nanoTime();
         assertTrue(aNew.runMethod("2", () -> System.nanoTime() > time).join());
+        assertTrue(aNew.runMethod("2", System::currentTimeMillis).join() < System.currentTimeMillis());
         assertEquals("Hello, World!", aNew.runMethod("2", () -> "Hello, World!").join());
         String sent = "This is a sent value";
         assertEquals(sent, aNew.runMethod("2", () -> sent).join());
@@ -147,6 +148,14 @@ public class LamadaTests {
             "a", implA.getUUID(),
             playerA -> implB.doInside(() -> test) + ":" + implB.getUUID()
         ).join());
+    }
+
+    @Test
+    public void testUniqueWeirdInlineReturnType() {
+        assertTrue(uniqueObjectsB.runMethod(
+            "a", implA.getUUID(),
+            AnUniqueObject::getTime
+        ).join() < System.currentTimeMillis());
     }
 
     public record Something(String str, AnUniqueObject other) {

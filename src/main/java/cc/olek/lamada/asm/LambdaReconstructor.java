@@ -129,11 +129,11 @@ public class LambdaReconstructor {
 
         byte[] lambdaClassBytes = generateLambdaClass(implementationClazz, generatedClassName, functionalInterface, lambda);
         saveClass(generatedClassName, lambdaClassBytes, true);
-        defineClass(implementationClazz.getClassLoader(), generatedClassName, lambdaClassBytes);
+        defineClass(classLoader, generatedClassName, lambdaClassBytes);
 
         byte[] factoryClassBytes = generateFactoryClass(generatedClassName + "$Generator", generatedClassName);
         saveClass(generatedClassName + "$Generator", factoryClassBytes, false);
-        Class<?> factoryClass = defineClass(implementationClazz.getClassLoader(), generatedClassName + "$Generator", factoryClassBytes);
+        Class<?> factoryClass = defineClass(classLoader, generatedClassName + "$Generator", factoryClassBytes);
 
         return factoryClass.getConstructor().newInstance();
     }
@@ -159,7 +159,31 @@ public class LambdaReconstructor {
             throw new IllegalStateException("Could not find lambda function");
         }
         MethodImpl prev = lambda.implementation();
-        if(lambda.implMethodKind() == AsmUtil.H_INVOKESTATIC) {
+        genExtra: if(lambda.implMethodKind() == AsmUtil.H_INVOKESTATIC) {
+            Class<?>[] runtimeArgs = new Class<?>[allArgs.length];
+            for (int i = 0; i < allArgs.length; i++) {
+                Type type = allArgs[i];
+                runtimeArgs[i] = switch (type.getSort()) {
+                    case Type.VOID -> void.class;
+                    case Type.BOOLEAN -> boolean.class;
+                    case Type.BYTE -> byte.class;
+                    case Type.CHAR -> char.class;
+                    case Type.SHORT -> short.class;
+                    case Type.INT -> int.class;
+                    case Type.LONG -> long.class;
+                    case Type.DOUBLE -> double.class;
+                    case Type.FLOAT -> float.class;
+                    default -> Class.forName(
+                        type.getInternalName().replace('/', '.'),
+                        true,
+                        originalClass.getClassLoader()
+                    );
+                };
+            }
+            Method implReflectionMethod = originalClass.getDeclaredMethod(lambda.implementation().methodName(), runtimeArgs);
+            if(Modifier.isPublic(implReflectionMethod.getModifiers())) {
+                break genExtra;
+            }
             lambda.setImplementation(new MethodImpl(internalName, prev.methodName(), prev.signature()));
             generateAccessorClass(cw, originalClass, internalName, lambda, originalClass.getClassLoader());
         }
@@ -360,6 +384,7 @@ public class LambdaReconstructor {
         mv.visitCode();
 
         Type[] argsToOriginal = Type.getArgumentTypes(lambda.primarySignature());
+        Type interfaceMethodReturnType = Type.getReturnType(lambda.primarySignature());
 
         for(FieldDesc field : fields) {
             mv.visitVarInsn(Opcodes.ALOAD, 0);
@@ -391,16 +416,24 @@ public class LambdaReconstructor {
         MethodImpl implementation = lambda.implementation();
         int invokeOpcode = AsmUtil.getInvokeOpcode(lambda.implMethodKind());
         boolean isInterface = (lambda.implMethodKind() == AsmUtil.H_INVOKEINTERFACE);
+        String signature = implementation.signature();
+        Type implReturnType = Type.getReturnType(signature);
         mv.visitMethodInsn(invokeOpcode, implementation.className(), implementation.methodName(),
-            implementation.signature(), isInterface);
+            signature, isInterface);
 
         // Handle return
+        int implReturnTypeSort = implReturnType.getSort();
+        if(implReturnTypeSort != Type.VOID && interfaceMethodReturnType.getSort() == Type.VOID) {
+            mv.visitInsn(implReturnTypeSort == Type.LONG || implReturnTypeSort == Type.DOUBLE ? Opcodes.POP2 : Opcodes.POP);
+        }
+
         Class<?> returnType = functionalMethod.getReturnType();
         if(returnType == void.class) {
             mv.visitInsn(Opcodes.RETURN);
         } else if(returnType.isPrimitive()) {
             AsmUtil.generatePrimitiveReturn(mv, returnType);
         } else {
+            AsmUtil.boxPrimitive(mv, implReturnType);
             mv.visitInsn(Opcodes.ARETURN);
         }
 

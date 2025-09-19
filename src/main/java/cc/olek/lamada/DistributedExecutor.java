@@ -12,7 +12,6 @@ import com.esotericsoftware.kryo.*;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers;
-import com.esotericsoftware.kryo.serializers.FieldSerializer;
 import com.esotericsoftware.kryo.unsafe.UnsafeInput;
 import com.esotericsoftware.kryo.unsafe.UnsafeOutput;
 import com.esotericsoftware.minlog.Log;
@@ -30,7 +29,7 @@ public class DistributedExecutor<Target> {
     protected final WeakSet<Kryo> activeKryos = new WeakSet<>();
     protected final String purpose;
     protected final ThreadLocal<Kryo> kryo;
-    protected ClassLoader contextClassLoader = DistributedExecutor.class.getClassLoader();
+    protected ClassLoader contextClassLoader = this.getClass().getClassLoader();
     private final Class<Target> targetType;
     private final Int2ObjectMap<ExecutionContext> contexts = new Int2ObjectOpenHashMap<>();
     private final Map<Class<?>, Serializer<?>> userDefinedSerializers = new LinkedHashMap<>();
