@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "cc.olek.lamada"
-version = "1.0-SNAPSHOT"
+version = "1.0"
 
 repositories {
     mavenCentral()
