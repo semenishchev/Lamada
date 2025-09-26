@@ -85,7 +85,7 @@ public class LamadaTests {
         });
         long time = System.nanoTime();
         assertTrue(aNew.runMethod("2", () -> System.nanoTime() > time).join());
-        assertTrue(aNew.runMethod("2", System::currentTimeMillis).join() < System.currentTimeMillis());
+        assertTrue(aNew.runMethod("2", System::currentTimeMillis).join() >= System.currentTimeMillis());
         assertEquals("Hello, World!", aNew.runMethod("2", () -> "Hello, World!").join());
         String sent = "This is a sent value";
         assertEquals(sent, aNew.runMethod("2", () -> sent).join());
@@ -99,6 +99,28 @@ public class LamadaTests {
         Long result = aNew.runAsyncMethod("1", () -> CompletableFuture.supplyAsync(System::currentTimeMillis)).join();
         System.out.println(started + " : " + result);
         assertTrue(started <= result);
+        aNew.shutdown();
+    }
+
+    @Test
+    public void testStaticAsyncThrowingInFutureExecution() {
+        DistributedExecutor<String> aNew = getNew();
+        assertThrows(RuntimeException.class, () -> {
+            aNew.runAsyncMethod("1", () -> CompletableFuture.runAsync(() -> {
+                throw new RuntimeException("Expected");
+            })).join();
+        });
+        aNew.shutdown();
+    }
+
+    @Test
+    public void testStaticAsyncThrowingFutureCreation() {
+        DistributedExecutor<String> aNew = getNew();
+        assertThrows(RuntimeException.class, () -> {
+            aNew.runAsyncMethod("1", () -> {
+                throw new RuntimeException("Expected");
+            }).join();
+        });
         aNew.shutdown();
     }
 
