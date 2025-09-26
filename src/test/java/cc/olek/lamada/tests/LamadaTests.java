@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -88,6 +89,16 @@ public class LamadaTests {
         assertEquals("Hello, World!", aNew.runMethod("2", () -> "Hello, World!").join());
         String sent = "This is a sent value";
         assertEquals(sent, aNew.runMethod("2", () -> sent).join());
+        aNew.shutdown();
+    }
+
+    @Test
+    public void testStaticAsyncExecution() {
+        DistributedExecutor<String> aNew = getNew();
+        long started = System.currentTimeMillis();
+        Long result = aNew.runAsyncMethod("1", () -> CompletableFuture.supplyAsync(System::currentTimeMillis)).join();
+        System.out.println(started + " : " + result);
+        assertTrue(started <= result);
         aNew.shutdown();
     }
 

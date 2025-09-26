@@ -124,6 +124,26 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
         });
     }
 
+    @SuppressWarnings("unchecked")
+    public <T> CompletableFuture<T> runAsyncMethod(Target target, Key key, ExecutionFunction<Value, CompletableFuture<T>> toRun) {
+        if(target == null || target.equals(executor.ownTarget)) {
+            Value value = fetch(key);
+            if(value == null) {
+                throw new NullPointerException("Failed to move a " + objectType.getSimpleName() + " with key " + key);
+            }
+            return toRun.apply(value);
+        }
+        return doSerialize(target, key, toRun, ExecutableInterface.ASYNC_FUNCTION).thenCompose(
+            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
+        ).thenApply(bytes -> {
+            InvocationResult result = executor.receiveResult(target, bytes);
+            if(result.errorMessage() != null) {
+                throw new RuntimeException(result.errorMessage());
+            }
+            return (T) result.result();
+        });
+    }
+
     public CompletableFuture<Object> runSingleMethod(Target target, Key key, String methodDesc, Object[] params) {
         Object id = this.stubFactory.getKey(methodDesc);
         DistributedObject<Key, Value, Target> us = this;

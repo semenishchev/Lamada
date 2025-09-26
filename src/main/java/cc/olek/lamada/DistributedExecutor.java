@@ -90,6 +90,10 @@ public class DistributedExecutor<Target> {
         return staticExecutor.runMethod(target, runnable);
     }
 
+    public <T> CompletableFuture<T> runAsyncMethod(Target target, ExecutionSupplier<CompletableFuture<T>> runnable) {
+        return staticExecutor.runAsyncMethod(target, runnable);
+    }
+
     public CompletableFuture<Void> runAndForget(Target target, ExecutionRunnable runnable) {
         return staticExecutor.runAndForget(target, runnable);
     }
@@ -222,6 +226,35 @@ public class DistributedExecutor<Target> {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    public CompletableFuture<InvocationResult> executeAsyncContext(ExecutionContext context) {
+        ExecutableInterface executable = context.lambda();
+        if(executable == null) {
+            return CompletableFuture.failedFuture(new RuntimeException("Could not find lambda implementation. This shouldn't happen"));
+        }
+
+        String failureMessage = "Unexpected error";
+        try {
+            CompletableFuture<Object> result = switch (context.mode()) {
+                case ExecutableInterface.ASYNC_FUNCTION -> {
+                    Object executeOn = context.objectRequesting().get(context.key());
+                    failureMessage =  "Failed to execute async lambda on %s\nKey: %s\nObject received: %s".formatted(context.objectRequesting().getClass(), context.key(), executeOn);
+                    yield (CompletableFuture<Object>) ((ExecutionFunction<?, ?>) executable).applyObj(executeOn); // jesus
+                }
+                case ExecutableInterface.ASYNC_SUPPLIER -> {
+                    failureMessage = "Failed to execute async lambda supplier in a static context";
+                    yield (CompletableFuture<Object>) ((ExecutionSupplier<?>) executable).supply();
+                }
+                default -> throw new IllegalStateException("Unexpected value: " + context.mode());
+            };
+            return result
+                .thenApply(obj -> new InvocationResult(context, obj, null))
+                .exceptionally(err -> InvocationResult.ofError(context, err));
+        } catch (Throwable t) {
+            return CompletableFuture.failedFuture(new RuntimeException(failureMessage, t));
+        }
+    }
+
     public InvocationResult executeContext(ExecutionContext context) {
         ExecutableInterface executable = context.lambda();
         if(executable == null) {
@@ -251,6 +284,7 @@ public class DistributedExecutor<Target> {
                     ((ExecutionConsumer<?>) executable).applyObj(executeOn);
                     yield null;
                 }
+                case ExecutableInterface.ASYNC_FUNCTION, ExecutableInterface.ASYNC_SUPPLIER -> throw new IllegalArgumentException("Cannot use sync execution with an async mode");
                 default -> throw new IllegalStateException("Unexpected value: " + context.mode());
             };
             return new InvocationResult(context, result, null);

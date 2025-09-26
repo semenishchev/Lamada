@@ -9,6 +9,7 @@ import cc.olek.lamada.asm.LambdaReconstructor;
 import cc.olek.lamada.asm.MethodImpl;
 import cc.olek.lamada.context.ExecutionContext;
 import cc.olek.lamada.context.InvocationResult;
+import cc.olek.lamada.func.ExecutableInterface;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMaps;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -55,8 +56,8 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
                     if(LambdaReconstructor.DEBUG) {
                         logger.info("Message {} on {}", message, channel);
                     }
-                    try {
-                        onMessageReceived(channel, message, pool, executor);
+                    try(Jedis jedis = pool.getResource()) {
+                        onMessageReceived(channel, message, jedis, executor);
                     } catch(Throwable t) {
                         logger.error("Failed to receive message {} on {}", message, channel, t);
                     }
@@ -75,7 +76,7 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
         }
     }
 
-    private void onMessageReceived(String channel, String message, JedisPool pool, DistributedExecutor<String> executor) {
+    private void onMessageReceived(String channel, String message, Jedis jedis, DistributedExecutor<String> executor) {
         String[] data = message.split(":");
         if(data.length != 3) {
             throw new RuntimeException("Rejecting malformed message on " + channel + ": " + message);
@@ -87,7 +88,6 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
             case "w", "n" -> {
                 boolean waitForReply = action.equals("w");
                 // not using try(var) because of too much tabs
-                Jedis jedis = pool.getResource();
                 byte[] key = (channel + ":" + opNumber).getBytes(StandardCharsets.UTF_8);
                 byte[] operation = jedis.getDel(key);
                 if(operation == null) {
@@ -110,6 +110,16 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
                     sendResponseBack(sender, InvocationResult.ofError(context, context.deserializationError()));
                     return;
                 }
+                if(ExecutableInterface.isAsync(context.mode())) {
+                    executor.executeAsyncContext(context).whenCompleteAsync((result, err) -> {
+                        if(err != null) {
+                            sendResponseBack(sender, InvocationResult.ofError(context, err));
+                            return;
+                        }
+                        sendResponseBack(sender, result);
+                    }, RedisExecutor.JAVA_EXECUTOR);
+                    return;
+                }
                 Thread thread = RedisExecutor.INSTANCE.unstarted(() -> {
                     try {
                         InvocationResult invocation = executor.executeContext(context);
@@ -129,10 +139,8 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
             }
             // complete submitted futures
             case "r" -> {
-                try (Jedis jedis = pool.getResource()) {
-                    byte[] response = jedis.getDel(("resp:" + executor.getOwnTarget() + ":" + opNumber).getBytes(StandardCharsets.UTF_8));
-                    submittedFutures.get(opNumber).complete(response);
-                }
+                byte[] response = jedis.getDel(("resp:" + executor.getOwnTarget() + ":" + opNumber).getBytes(StandardCharsets.UTF_8));
+                submittedFutures.get(opNumber).complete(response);
             }
         }
     }

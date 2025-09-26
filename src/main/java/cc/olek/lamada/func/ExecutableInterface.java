@@ -24,10 +24,15 @@ public interface ExecutableInterface extends Serializable {
     byte SUPPLIER = 0x1;
     byte CONSUMER = 0x2;
     byte FUNCTION = 0x3;
-    byte MODE_ERR = 0x4;
+    byte ASYNC_FUNCTION = 0x4;
+    byte ASYNC_SUPPLIER = 0x5;
+    byte MODE_ERR = 0xf;
 
     static boolean isStatic(byte val) {
         return val == RUNNABLE || val == SUPPLIER;
+    }
+    static boolean isAsync(byte val) {
+        return val == ASYNC_FUNCTION || val == ASYNC_SUPPLIER;
     }
 
     class LambdaSerializer<Target> extends Serializer<Object> implements SuperclassSerializer {

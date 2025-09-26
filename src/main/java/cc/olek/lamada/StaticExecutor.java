@@ -26,6 +26,22 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
         });
     }
 
+    @SuppressWarnings("unchecked")
+    public <T> CompletableFuture<T> runAsyncMethod(Target target, ExecutionSupplier<CompletableFuture<T>> toRun) {
+        if(target == null || target.equals(executor.ownTarget)) {
+            return toRun.supply();
+        }
+        return doSerialize(target, null, toRun, ExecutableInterface.ASYNC_SUPPLIER).thenCompose(
+            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
+        ).thenApply(bytes -> {
+            InvocationResult result = executor.receiveResult(target, bytes);
+            if(result.errorMessage() != null) {
+                throw new RuntimeException(result.errorMessage());
+            }
+            return (T) result.result();
+        });
+    }
+
     public CompletableFuture<Void> run(Target target, ExecutionRunnable toRun) {
         if(target == null || target.equals(executor.ownTarget)) {
             return CompletableFuture.runAsync(toRun::run, executor.executor);
@@ -67,6 +83,11 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
 
     @Override
     public final CompletableFuture<Void> runAndForget(Target target, Object o, ExecutionConsumer<Object> toRun) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public final <T> CompletableFuture<T> runAsyncMethod(Target target, Object o, ExecutionFunction<Object, CompletableFuture<T>> toRun) {
         throw new UnsupportedOperationException();
     }
 
