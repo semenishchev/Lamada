@@ -115,10 +115,15 @@ public interface ExecutableInterface extends Serializable {
                     short lambdaNum = input.readShort();
                     impl = executor.getTargetManager().reconstruct(sender, lambdaNum);
                     if(impl == null) {
-                        Object[] params = readLambdaParams(kryo, input);
                         impl = executor.getTargetManager().requestMissingImplementation(sender, lambdaNum);
                         if(impl == null) {
                             throw new RuntimeException("Lambda implementation #" + lambdaNum + " was null, failed to explicitly request it by number");
+                        }
+                        Object[] params;
+                        try {
+                            params = readLambdaParams(kryo, input);
+                        } catch(Throwable e) {
+                            throw new RuntimeException("Failed to read lambda params for " + impl, e);
                         }
                         if(LambdaReconstructor.DEBUG) {
                             executor.getLogger().info("{} didn't exist, explicit request yielded {}", lambdaNum, impl);
@@ -159,7 +164,12 @@ public interface ExecutableInterface extends Serializable {
             if(firstEver) {
                 kryo.getContext().put("first", false);
             }
-            Object[] params = readLambdaParams(kryo, input);
+            Object[] params;
+            try {
+                params = readLambdaParams(kryo, input);
+            } catch(Throwable e) {
+                throw new RuntimeException("Failed to read params for " + impl, e);
+            }
             try {
                 return LambdaReconstructor.reconstructLambda(impl, params, firstEver, executor.getContextClassLoader());
             } catch(Exception e) {

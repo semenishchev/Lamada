@@ -23,7 +23,6 @@ import redis.clients.jedis.JedisPubSub;
 import redis.clients.jedis.params.SetParams;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -100,14 +99,14 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
                 } catch(Throwable t) {
                     logger.error("Failed to read context {} from {}", operation, sender, t);
                     if(!waitForReply) return;
-                    sendResponseBack(sender, InvocationResult.ofError(opNumber, new RuntimeException("Failed to serialize context with number: " + opNumber, t)));
+                    sendResponseBack(jedis, sender, InvocationResult.ofError(opNumber, new RuntimeException("Failed to serialize context with number: " + opNumber, t)));
                     return;
                 }
 
                 if(context.deserializationError() != null) {
                     logger.error("Failed to deserialize context {} ({}) from {}", context.opNumber(), operation, sender, context.deserializationError());
                     if(!waitForReply) return;
-                    sendResponseBack(sender, InvocationResult.ofError(context, context.deserializationError()));
+                    sendResponseBack(jedis, sender, InvocationResult.ofError(context, context.deserializationError()));
                     return;
                 }
                 if(ExecutableInterface.isAsync(context.mode())) {
@@ -135,7 +134,6 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
                 thread.setName("DistributedObjectTask #" + opNumber);
                 executing.add(thread);
                 thread.start();
-                jedis.close();
             }
             // complete submitted futures
             case "r" -> {
@@ -146,6 +144,11 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
     }
 
     private void sendResponseBack(String target, InvocationResult result) {
+        try(Jedis jedis = this.pool.getResource()) {
+            sendResponseBack(jedis, target, result);
+        }
+    }
+    private void sendResponseBack(Jedis jedis, String target, InvocationResult result) {
         byte[] toSend;
         try {
             toSend = this.executor.serializeResponse(result);
@@ -153,16 +156,18 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
             logger.error("Failed to serialize response {}", result.of().opNumber(), t);
             toSend = this.executor.serializeResponse(InvocationResult.ofError(result.of(), t));
         }
-        try (Jedis jedis = this.pool.getResource()) {
-            jedis.set(("resp:" + target + ":" + result.opNumber()).getBytes(StandardCharsets.UTF_8), toSend, SetParams.setParams().ex(30));
-            jedis.publish("op:" + target, "r:" + executor.getOwnTarget() + ":" + result.opNumber());
-        }
+        jedis.set(("resp:" + target + ":" + result.opNumber()).getBytes(StandardCharsets.UTF_8), toSend, SetParams.setParams().ex(30));
+        jedis.publish("op:" + target, "r:" + executor.getOwnTarget() + ":" + result.opNumber());
     }
 
     @Override
-    public CompletableFuture<byte[]> send(DistributedObject<?, ?, String> object, String to, int opNumber, byte[] data, boolean waitForReply) {
+    public CompletableFuture<byte[]> send(DistributedObject<?, ?, String> object, String to, int opNumber, byte[] data, long timeout) {
         DistributedExecutor<String> executor = object.getExecutor();
         CompletableFuture<byte[]> result = new CompletableFuture<>();
+        if(timeout == DistributedObject.TIMEOUT_MODE_DEFAULT) {
+            timeout = 10_000;
+        }
+        boolean waitForReply = timeout > DistributedObject.TIMEOUT_MODE_FORGET;
         if(waitForReply) {
             submittedFutures.put(opNumber, result);
         }
@@ -177,8 +182,8 @@ public class RedisImplementation extends RemoteTargetManager<String> implements 
                 }
             }
         });
-        if(waitForReply) {
-            result = result.orTimeout(10, TimeUnit.SECONDS);
+        if(timeout > 0) {
+            result = result.orTimeout(timeout, TimeUnit.MILLISECONDS);
         }
         return result;
     }

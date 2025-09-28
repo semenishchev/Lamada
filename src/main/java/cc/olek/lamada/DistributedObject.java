@@ -25,6 +25,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 public abstract class DistributedObject<Key, Value, Target> extends ImmutableSerializer<Value> implements SuperclassSerializer {
+    public static final long TIMEOUT_MODE_DEFAULT = 0;
+    public static final long TIMEOUT_MODE_INDEFINITE = -1;
+    public static final long TIMEOUT_MODE_FORGET = -2;
     protected static final boolean SAVE_MESSAGES = System.getProperty("sync.save-msg") != null;
     protected static final Logger LOGGER = LoggerFactory.getLogger("DistributedObject");
     private final Class<? extends Value> objectType;
@@ -58,7 +61,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
      * @param toRun what to run
      * @return a future when lambda was completed
      */
-    public CompletableFuture<Void> run(Target target, Key key, ExecutionConsumer<Value> toRun) {
+    public CompletableFuture<Void> run(Target target, Key key, long timeout, ExecutionConsumer<Value> toRun) {
         if(target == null || target.equals(executor.ownTarget)) {
             return CompletableFuture.supplyAsync(() -> {
                 toRun.apply(fetch(key));
@@ -66,7 +69,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
             }, executor.executor);
         }
         return doSerialize(target, key, toRun, ExecutableInterface.CONSUMER).thenCompose(
-            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
+            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), timeout)
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
@@ -74,6 +77,10 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
             }
             return null; // we are void anyway
         });
+    }
+
+    public CompletableFuture<Void> run(Target target, Key key, ExecutionConsumer<Value> toRun) {
+        return run(target, key, TIMEOUT_MODE_DEFAULT, toRun);
     }
 
     /**
@@ -91,7 +98,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
         }
         return doSerialize(target, key, toRun, ExecutableInterface.CONSUMER)
             .thenCompose(serialized ->
-                doSend(target, serialized.context().opNumber(), serialized.bytes(), false)
+                doSend(target, serialized.context().opNumber(), serialized.bytes(), TIMEOUT_MODE_FORGET)
             ) // implementation is required to return right after sending
             .thenApply(d -> null);
     }
@@ -101,11 +108,13 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
      * @param target Target
      * @param key key
      * @param toRun what to run
+     * @param timeout Timeout in MS or timeout shortcut if nonstandard value.
+     *                See {@value TIMEOUT_MODE_DEFAULT}, {@value TIMEOUT_MODE_INDEFINITE}, {@value TIMEOUT_MODE_FORGET}
      * @return a future when function was executed, and we received results from the target
      * @param <T> Data type returned from the function
      */
     @SuppressWarnings("unchecked")
-    public <T> CompletableFuture<T> runMethod(Target target, Key key, ExecutionFunction<Value, T> toRun) {
+    public <T> CompletableFuture<T> runMethod(Target target, Key key, long timeout, ExecutionFunction<Value, T> toRun) {
         if(target == null || target.equals(executor.ownTarget)) {
             Value value = fetch(key);
             if(value == null) {
@@ -114,7 +123,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
             return CompletableFuture.supplyAsync(() -> toRun.apply(value), executor.executor);
         }
         return doSerialize(target, key, toRun, ExecutableInterface.FUNCTION).thenCompose(
-            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
+            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), timeout)
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
@@ -124,8 +133,12 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
         });
     }
 
+    public <T> CompletableFuture<T> runMethod(Target target, Key key, ExecutionFunction<Value, T> toRun) {
+        return runMethod(target, key, TIMEOUT_MODE_DEFAULT, toRun);
+    }
+
     @SuppressWarnings("unchecked")
-    public <T> CompletableFuture<T> runAsyncMethod(Target target, Key key, ExecutionFunction<Value, CompletableFuture<T>> toRun) {
+    public <T> CompletableFuture<T> runAsyncMethod(Target target, Key key, long timeout, ExecutionFunction<Value, CompletableFuture<T>> toRun) {
         if(target == null || target.equals(executor.ownTarget)) {
             Value value = fetch(key);
             if(value == null) {
@@ -134,7 +147,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
             return toRun.apply(value);
         }
         return doSerialize(target, key, toRun, ExecutableInterface.ASYNC_FUNCTION).thenCompose(
-            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
+            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), timeout)
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
@@ -142,6 +155,10 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
             }
             return (T) result.result();
         });
+    }
+
+    public <T> CompletableFuture<T> runAsyncMethod(Target target, Key key, ExecutionFunction<Value, CompletableFuture<T>> toRun) {
+        return runAsyncMethod(target, key, TIMEOUT_MODE_DEFAULT, toRun);
     }
 
     public CompletableFuture<Object> runSingleMethod(Target target, Key key, String methodDesc, Object[] params) {
@@ -174,12 +191,12 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
      * Sends bytes instructions to a target
      * @param target Target to send
      * @param bytes bytes instruction
-     * @param waitForReply if we should wait for reply
+     * @param timeout Timeout mode. -2 for forget, -1 for indefinite, 0 for default, or positive value for timeout in MS
      * @return Response bytes if waitForReply is true. If it's false, bytes will always be null,
      * and implementations are required to complete the returning future right after sending
      * instead of when reply was received
      */
-    protected CompletableFuture<byte[]> doSend(Target target, int opNumber, byte[] bytes, boolean waitForReply) {
+    protected CompletableFuture<byte[]> doSend(Target target, int opNumber, byte[] bytes, long timeout) {
         if(LambdaReconstructor.DEBUG) {
             LOGGER.info("Message #{} to {} is {} bytes long", opNumber,target, bytes.length);
             if(SAVE_MESSAGES) {
@@ -190,7 +207,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
                 }
             }
         }
-        return this.executor.sender.send(this, target, opNumber, bytes, waitForReply);
+        return this.executor.sender.send(this, target, opNumber, bytes, timeout);
     }
 
     /**

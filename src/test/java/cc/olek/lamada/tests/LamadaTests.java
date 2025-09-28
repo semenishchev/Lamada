@@ -85,7 +85,7 @@ public class LamadaTests {
         });
         long time = System.nanoTime();
         assertTrue(aNew.runMethod("2", () -> System.nanoTime() > time).join());
-        assertTrue(aNew.runMethod("2", System::currentTimeMillis).join() >= System.currentTimeMillis());
+        assertTrue(System.currentTimeMillis() <= aNew.runMethod("2", System::currentTimeMillis).join());
         assertEquals("Hello, World!", aNew.runMethod("2", () -> "Hello, World!").join());
         String sent = "This is a sent value";
         assertEquals(sent, aNew.runMethod("2", () -> sent).join());

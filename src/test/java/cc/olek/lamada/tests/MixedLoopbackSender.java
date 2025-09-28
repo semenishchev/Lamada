@@ -16,7 +16,7 @@ public class MixedLoopbackSender<Target> implements InstructionCommunicator<Targ
         this.executors.put(executor.getOwnTarget(), executor);
     }
     @Override
-    public CompletableFuture<byte[]> send(DistributedObject<?, ?, Target> object, Target to, int opNumber, byte[] data, boolean waitForReply) {
+    public CompletableFuture<byte[]> send(DistributedObject<?, ?, Target> object, Target to, int opNumber, byte[] data, long timeout) {
         DistributedExecutor<Target> runOn = executors.get(to);
         if(runOn == null) {
             return CompletableFuture.failedFuture(new NullPointerException("Could not find executor on " + to));

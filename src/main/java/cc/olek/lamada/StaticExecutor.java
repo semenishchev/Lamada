@@ -10,13 +10,17 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
         super(distributedExecutor, null, null, false);
     }
 
-    @SuppressWarnings("unchecked")
     public <T> CompletableFuture<T> runMethod(Target target, ExecutionSupplier<T> toRun) {
+        return runMethod(target, TIMEOUT_MODE_DEFAULT, toRun);
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> CompletableFuture<T> runMethod(Target target, long timeout, ExecutionSupplier<T> toRun) {
         if(target == null || target.equals(executor.ownTarget)) {
             return CompletableFuture.supplyAsync(toRun::supply, executor.executor);
         }
         return doSerialize(target, null, toRun, ExecutableInterface.SUPPLIER).thenCompose(
-            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
+            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), timeout)
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
@@ -26,13 +30,17 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
         });
     }
 
-    @SuppressWarnings("unchecked")
     public <T> CompletableFuture<T> runAsyncMethod(Target target, ExecutionSupplier<CompletableFuture<T>> toRun) {
+        return runAsyncMethod(target, TIMEOUT_MODE_DEFAULT, toRun);
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> CompletableFuture<T> runAsyncMethod(Target target, long timeout, ExecutionSupplier<CompletableFuture<T>> toRun) {
         if(target == null || target.equals(executor.ownTarget)) {
             return toRun.supply();
         }
         return doSerialize(target, null, toRun, ExecutableInterface.ASYNC_SUPPLIER).thenCompose(
-            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
+            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), timeout)
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
@@ -43,11 +51,14 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
     }
 
     public CompletableFuture<Void> run(Target target, ExecutionRunnable toRun) {
+        return run(target, TIMEOUT_MODE_DEFAULT, toRun);
+    }
+    public CompletableFuture<Void> run(Target target, long timeout, ExecutionRunnable toRun) {
         if(target == null || target.equals(executor.ownTarget)) {
             return CompletableFuture.runAsync(toRun::run, executor.executor);
         }
         return doSerialize(target, null, toRun, ExecutableInterface.RUNNABLE).thenCompose(
-            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), true)
+            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), timeout)
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
@@ -62,17 +73,17 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
             return CompletableFuture.runAsync(toRun::run, executor.executor);
         }
         return doSerialize(target, null, toRun, ExecutableInterface.RUNNABLE).thenCompose(
-            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), false)
+            serialized -> doSend(target, serialized.context().opNumber(), serialized.bytes(), TIMEOUT_MODE_FORGET)
         ).thenApply(__ -> null);
     }
 
     @Override
-    public final <T> CompletableFuture<T> runMethod(Target target, Object o, ExecutionFunction<Object, T> toRun) {
+    public final <T> CompletableFuture<T> runMethod(Target target, Object o, long timeout, ExecutionFunction<Object, T> toRun) {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public final CompletableFuture<Void> run(Target target, Object o, ExecutionConsumer<Object> toRun) {
+    public final CompletableFuture<Void> run(Target target, Object o, long timeout, ExecutionConsumer<Object> toRun) {
         throw new UnsupportedOperationException();
     }
 
@@ -87,7 +98,7 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
     }
 
     @Override
-    public final <T> CompletableFuture<T> runAsyncMethod(Target target, Object o, ExecutionFunction<Object, CompletableFuture<T>> toRun) {
+    public final <T> CompletableFuture<T> runAsyncMethod(Target target, Object o, long timeout, ExecutionFunction<Object, CompletableFuture<T>> toRun) {
         throw new UnsupportedOperationException();
     }
 
