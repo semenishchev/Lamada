@@ -1,6 +1,7 @@
 package cc.olek.lamada;
 
 import cc.olek.lamada.context.InvocationResult;
+import cc.olek.lamada.exception.TargetExecutionException;
 import cc.olek.lamada.func.*;
 
 import java.util.concurrent.CompletableFuture;
@@ -24,7 +25,7 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
-                throw new RuntimeException(result.errorMessage());
+                throw new TargetExecutionException(result.errorMessage());
             }
             return (T) result.result();
         });
@@ -44,7 +45,7 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
-                throw new RuntimeException(result.errorMessage());
+                throw new TargetExecutionException(result.errorMessage());
             }
             return (T) result.result();
         });
@@ -62,7 +63,7 @@ public class StaticExecutor<Target> extends DistributedObject<Object, Object, Ta
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
-                throw new RuntimeException(result.errorMessage());
+                throw new TargetExecutionException(result.errorMessage());
             }
             return null;
         });

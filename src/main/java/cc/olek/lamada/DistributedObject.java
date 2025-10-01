@@ -3,6 +3,8 @@ package cc.olek.lamada;
 import cc.olek.lamada.asm.LambdaReconstructor;
 import cc.olek.lamada.context.ExecutionContext;
 import cc.olek.lamada.context.InvocationResult;
+import cc.olek.lamada.exception.TargetExecutionException;
+import cc.olek.lamada.exception.TargetNotAvailableException;
 import cc.olek.lamada.func.ExecutableInterface;
 import cc.olek.lamada.func.ExecutionConsumer;
 import cc.olek.lamada.func.ExecutionFunction;
@@ -73,7 +75,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
-                throw new RuntimeException(result.errorMessage());
+                throw new TargetExecutionException(result.errorMessage());
             }
             return null; // we are void anyway
         });
@@ -127,7 +129,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
-                throw new RuntimeException(result.errorMessage());
+                throw new TargetExecutionException(result.errorMessage());
             }
             return (T) result.result();
         });
@@ -151,7 +153,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
         ).thenApply(bytes -> {
             InvocationResult result = executor.receiveResult(target, bytes);
             if(result.errorMessage() != null) {
-                throw new RuntimeException(result.errorMessage());
+                throw new TargetExecutionException(result.errorMessage());
             }
             return (T) result.result();
         });
@@ -221,7 +223,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
         }
         executor.executor.execute(() -> {
             if(!executor.targetManager.isTargetAvailable(target)) {
-                serialize.completeExceptionally(new RuntimeException("Target " + target.toString() + " is not available"));
+                serialize.completeExceptionally(new TargetNotAvailableException(target.toString()));
                 return;
             }
             if(serializedFirst != null && !serializedFirst.isDone()) {
@@ -263,7 +265,7 @@ public abstract class DistributedObject<Key, Value, Target> extends ImmutableSer
 
         Key key = extract(object);
         if(key == null) {
-            throw new RuntimeException("Serialized object key might not be null. If you wish not to pass an object, write null for object, not for the key");
+            throw new NullPointerException("Serialized object key might not be null. If you wish not to pass an object, write null for object, not for the key");
         }
         output.writeBoolean(true);
         kryo.writeObject(output, key);
