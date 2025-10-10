@@ -62,7 +62,7 @@ public final class ExecutionContext {
     }
 
     public boolean isStatic() {
-        return mode == ExecutableInterface.RUNNABLE || mode == ExecutableInterface.SUPPLIER;
+        return mode == ExecutableInterface.RUNNABLE || mode == ExecutableInterface.SUPPLIER || mode == ExecutableInterface.ASYNC_SUPPLIER;
     }
 
     public ExecutableInterface lambda() {
