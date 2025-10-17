@@ -29,7 +29,7 @@ public interface ExecutableInterface extends Serializable {
     byte MODE_ERR = 0xf;
 
     static boolean isStatic(byte val) {
-        return val == RUNNABLE || val == SUPPLIER;
+        return val == RUNNABLE || val == SUPPLIER || val == ASYNC_SUPPLIER;
     }
     static boolean isAsync(byte val) {
         return val == ASYNC_FUNCTION || val == ASYNC_SUPPLIER;

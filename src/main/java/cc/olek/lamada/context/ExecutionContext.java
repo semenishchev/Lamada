@@ -2,6 +2,7 @@ package cc.olek.lamada.context;
 
 import cc.olek.lamada.DistributedExecutor;
 import cc.olek.lamada.DistributedObject;
+import cc.olek.lamada.StaticExecutor;
 import cc.olek.lamada.func.ExecutableInterface;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.Serializer;
@@ -62,7 +63,7 @@ public final class ExecutionContext {
     }
 
     public boolean isStatic() {
-        return mode == ExecutableInterface.RUNNABLE || mode == ExecutableInterface.SUPPLIER || mode == ExecutableInterface.ASYNC_SUPPLIER;
+        return ExecutableInterface.isStatic(mode);
     }
 
     public ExecutableInterface lambda() {
@@ -160,6 +161,11 @@ public final class ExecutionContext {
             byte mode = input.readByte();
             Object key = null;
             if(!ExecutableInterface.isStatic(mode)) {
+                if(object instanceof StaticExecutor<?>) {
+                    ExecutionContext result = new ExecutionContext(null, sender, null, ExecutableInterface.MODE_ERR, null, opNumber);
+                    result.setDeserializationError(new IllegalStateException("Received nonstatic mode: " + mode + " while object expected is static: " + object.getClass()));
+                    return result;
+                }
                 try {
                     key = kryo.readObject(input, object.getSerializeFrom());
                 } catch(Throwable t) {
